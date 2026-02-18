@@ -11,9 +11,12 @@
 // Event callback type (same as AgentLoop's EventCallback)
 using AgentEventCallback = EventCallback;
 
+class SubagentManager;
+
 class Agent {
 public:
     Agent();
+    virtual ~Agent();
 
     // Process a user message, streaming events via callback.
     void run(

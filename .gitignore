@@ -5,3 +5,6 @@ backend/external/cpp-httplib/
 backend/external/Crow/
 backend/external/json/
 backend/external/spdlog/
+
+backend/build
+fiber/

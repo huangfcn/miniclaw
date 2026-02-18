@@ -11,6 +11,9 @@ class SpawnTool : public Tool {
 public:
     SpawnTool(SubagentManager& manager) : manager_(manager) {}
 
+    std::string name() const override { return "spawn"; }
+    std::string description() const override { return "Spawn a subagent to handle a task in the background"; }
+
     void set_context(const std::string& session_id) {
         session_id_ = session_id;
     }

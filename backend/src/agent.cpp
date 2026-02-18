@@ -1,4 +1,5 @@
 #include "agent.hpp"
+#include "agent/subagent.hpp"
 
 #include <spdlog/spdlog.h>
 #include <sstream>
@@ -13,6 +14,8 @@
 #include "tools/spawn.hpp"
 
 using json = nlohmann::json;
+
+Agent::~Agent() = default;
 
 Agent::Agent() {
     api_key_   = std::getenv("OPENAI_API_KEY")  ? std::getenv("OPENAI_API_KEY")  : "";
@@ -79,31 +82,32 @@ std::string Agent::call_llm(
 
     std::string full_response;
 
-    auto res = cli.Post(
-        "/v1/chat/completions",
-        httplib::Headers{},
-        payload.dump(),
-        "application/json",
-        [&](const char* data, size_t len) {
-            std::string chunk(data, len);
-            std::istringstream ss(chunk);
-            std::string line;
-            while (std::getline(ss, line)) {
-                if (line.rfind("data: ", 0) != 0) continue;
-                std::string json_str = line.substr(6);
-                if (json_str == "[DONE]") continue;
-                try {
-                    auto j = json::parse(json_str);
-                    if (j["choices"][0]["delta"].contains("content")) {
-                        std::string tok = j["choices"][0]["delta"]["content"];
-                        on_token(tok);
-                        full_response += tok;
-                    }
-                } catch (...) {}
-            }
-            return true;
+    httplib::Request req;
+    req.method = "POST";
+    req.path = "/v1/chat/completions";
+    req.headers = {{"Content-Type", "application/json"}};
+    req.body = payload.dump();
+    req.content_receiver = [&](const char* data, size_t len, uint64_t /*off*/, uint64_t /*total*/) {
+        std::string chunk(data, len);
+        std::istringstream ss(chunk);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (line.rfind("data: ", 0) != 0) continue;
+            std::string json_str = line.substr(6);
+            if (json_str == "[DONE]") continue;
+            try {
+                auto j = json::parse(json_str);
+                if (j["choices"][0]["delta"].contains("content")) {
+                    std::string tok = j["choices"][0]["delta"]["content"];
+                    on_token(tok);
+                    full_response += tok;
+                }
+            } catch (...) {}
         }
-    );
+        return true;
+    };
+
+    auto res = cli.send(req);
 
     if (!res || res->status != 200) {
         int code = res ? res->status : 0;

@@ -12,6 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include "context.hpp"
+#include "session.hpp"
 #include "../tools/tool.hpp"
 
 // Event types streamed back to the caller (mirrors SSE event types in main.cpp)
@@ -48,9 +49,6 @@ public:
         return nullptr;
     }
 
-#include "session.hpp"
-
-// ... inside AgentLoop class
 
     // Process a single user message, using the provided session for history.
     void process(

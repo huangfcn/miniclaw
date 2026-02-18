@@ -8,7 +8,6 @@
 #include <vector>
 #include <regex>
 #include <nlohmann/json.hpp>
-#define CPPHTTPLIB_OPENSSL_SUPPORT
 #include <httplib.h>
 
 using json = nlohmann::json;
@@ -19,15 +18,18 @@ public:
         api_key_ = std::getenv("BRAVE_API_KEY") ? std::getenv("BRAVE_API_KEY") : "";
     }
 
+    std::string name() const override { return "web_search"; }
+    std::string description() const override { return "Search the web using Brave Search API"; }
+
     std::string execute(const std::string& input) override {
         if (api_key_.empty()) return "Error: BRAVE_API_KEY not configured";
 
         std::string query = input;
         // Simple search logic using Brave API
         httplib::Client cli("https://api.search.brave.com");
-        cli.set_header_authorizing("X-Subscription-Token", api_key_);
         
-        auto res = cli.Get("/res/v1/web/search?q=" + httplib::detail::encode_url(query));
+        auto res = cli.Get("/res/v1/web/search?q=" + httplib::detail::encode_url(query),
+                          {{"X-Subscription-Token", api_key_}});
         if (!res || res->status != 200) {
             return "Error: Search failed (HTTP " + std::to_string(res ? res->status : 0) + ")";
         }
@@ -55,6 +57,8 @@ private:
 
 class WebFetchTool : public Tool {
 public:
+    std::string name() const override { return "web_fetch"; }
+    std::string description() const override { return "Fetch a URL and extract text content"; }
     std::string execute(const std::string& input) override {
         std::string url = input;
         

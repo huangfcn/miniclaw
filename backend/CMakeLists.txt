@@ -1,45 +1,37 @@
 cmake_minimum_required(VERSION 3.14)
-project(miniclaw_backend VERSION 0.1.0 LANGUAGES CXX)
+project(miniclaw VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(FetchContent)
+# Find OpenSSL for httplib
+find_package(OpenSSL REQUIRED)
 
-# Crow - Web Framework
-FetchContent_Declare(
-    Crow
-    GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
-    GIT_TAG        v1.2.0
+# Define include directories for external libraries
+set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
+
+add_executable(miniclaw 
+    src/main.cpp 
+    src/agent.cpp
 )
-FetchContent_MakeAvailable(Crow)
 
-# nlohmann_json - JSON Library
-FetchContent_Declare(
-    json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
+target_include_directories(miniclaw PRIVATE 
+    src
+    ${EXTERNAL_DIR}/json
+    ${EXTERNAL_DIR}/cpp-httplib
+    ${EXTERNAL_DIR}/spdlog/include
+    ${EXTERNAL_DIR}/Crow/include
+    ${EXTERNAL_DIR}/asio/include
 )
-FetchContent_MakeAvailable(json)
 
-# cpr - C++ Requests
-FetchContent_Declare(
-    cpr
-    GIT_REPOSITORY https://github.com/libcpr/cpr.git
-    GIT_TAG        1.10.5
+# Definitions for Crow/httplib
+target_compile_definitions(miniclaw PRIVATE 
+    CPPHTTPLIB_OPENSSL_SUPPORT
+    ASIO_STANDALONE
 )
-FetchContent_MakeAvailable(cpr)
 
-# spdlog - Logging
-FetchContent_Declare(
-    spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        v1.14.1
+target_link_libraries(miniclaw PRIVATE 
+    OpenSSL::SSL 
+    OpenSSL::Crypto
+    pthread
 )
-FetchContent_MakeAvailable(spdlog)
-
-add_executable(miniclaw_backend src/main.cpp src/agent.cpp)
-
-target_include_directories(miniclaw_backend PRIVATE src)
-
-target_link_libraries(miniclaw_backend PRIVATE Crow::Crow nlohmann_json::nlohmann_json cpr::cpr spdlog::spdlog)
