@@ -1,15 +1,13 @@
-#include "agent.hpp"
-#include "agent/subagent.hpp"
-
 #include <uv.h>
 #include <fiber.hpp>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
+#include <curl/curl.h>
 #include <sstream>
 #include <thread>
-
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include <httplib.h>
+#include <mutex>
+#include <queue>
+#include <condition_variable>
 
 #include "tools/terminal.hpp"
 #include "tools/file.hpp"
@@ -19,13 +17,19 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include "agent/curl_manager.hpp"
 
 static std::queue<std::function<void()>> g_spawn_queue;
 static std::mutex g_spawn_mtx;
 static uv_async_t g_spawn_async;
 
 void init_spawn_system() {
-    uv_async_init(uv_default_loop(), &g_spawn_async, [](uv_async_t*) {
+    auto* loop = uv_default_loop();
+    curl_global_init(CURL_GLOBAL_ALL);
+    CurlMultiManager::instance().init(loop);
+    spdlog::info("Spawn system initialized with Async Curl manager");
+
+    uv_async_init(loop, &g_spawn_async, [](uv_async_t*) {
         std::unique_lock<std::mutex> lock(g_spawn_mtx);
         while (!g_spawn_queue.empty()) {
             auto task = std::move(g_spawn_queue.front());
@@ -112,7 +116,7 @@ void Agent::run(
             }
             d->cv.notify_one();
             return nullptr;
-        }, data, NULL, 0);
+        }, data, NULL, 512 * 1024);
     });
 
     // Wait for the fiber to complete in the Crow thread
@@ -132,95 +136,108 @@ std::string Agent::call_llm(
 ) {
     struct CallData {
         Agent* self;
-        const std::vector<Message>* messages;
         AgentEventCallback on_event;
         std::string result;
+        std::string buffer; // raw buffer for parsing chunks
         fiber_t fiber;
-        uv_async_t async;
-        bool completed = false;
+        std::function<void(CURLcode)> completion_cb;
+        struct curl_slist* headers = nullptr;
     };
 
-    auto* data = new CallData{this, &messages, on_event, "", fiber_ident()};
+    auto* data = new CallData{this, on_event, "", "", fiber_ident(), nullptr, nullptr};
+    data->completion_cb = [data](CURLcode code) {
+        if (code != CURLE_OK) {
+            spdlog::error("CURL error: {}", curl_easy_strerror(code));
+            if (data->result.empty()) {
+                data->result = "Error: LLM call failed (Curl " + std::to_string(code) + ")";
+            }
+        }
+        fiber_resume(data->fiber);
+    };
+
+    CURL* easy = curl_easy_init();
     
-    uv_async_init(g_loop, &data->async, [](uv_async_t* handle) {
-        auto* d = (CallData*)handle->data;
-        fiber_resume(d->fiber);
-    });
-    data->async.data = data;
+    // Build payload
+    json j_messages = json::array();
+    for (const auto& m : messages) {
+        j_messages.push_back({{"role", m.role}, {"content", m.content}});
+    }
+    json payload = {
+        {"model",    model_},
+        {"messages", j_messages},
+        {"stream",   true}
+    };
+    std::string payload_str = payload.dump();
 
-    std::thread t([data]() {
-        // Build payload and messages
-        json j_messages = json::array();
-        for (const auto& m : *data->messages) {
-            j_messages.push_back({{"role", m.role}, {"content", m.content}});
-        }
-        json payload = {
-            {"model",    data->self->model_},
-            {"messages", j_messages},
-            {"stream",   true}
-        };
+    // Headers
+    data->headers = curl_slist_append(data->headers, "Content-Type: application/json");
+    std::string auth = "Authorization: Bearer " + api_key_;
+    data->headers = curl_slist_append(data->headers, auth.c_str());
 
-        std::string api_url = data->self->api_base_;
-        if (api_url.find("http://") != 0 && api_url.find("https://") != 0) {
-            api_url = "https://" + api_url;
-        }
+    // URL
+    std::string url = api_base_;
+    if (url.find("http://") != 0 && url.find("https://") != 0) {
+        url = "https://" + url;
+    }
+    url += "/v1/chat/completions";
 
-        httplib::Client cli(api_url);
-        cli.set_bearer_token_auth(data->self->api_key_);
-        cli.set_read_timeout(300, 0);
+    curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS, payload_str.c_str());
+    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, data->headers);
+    curl_easy_setopt(easy, CURLOPT_PRIVATE, &data->completion_cb);
+    
+    // Write callback for streaming
+    auto write_cb = [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        size_t total = size * nmemb;
+        auto* d = (CallData*)userdata;
+        d->buffer.append(ptr, total);
 
-        std::string full_response;
-        httplib::Request req;
-        req.method = "POST";
-        req.path = "/v1/chat/completions";
-        req.headers = {{"Content-Type", "application/json"}};
-        req.body = payload.dump();
-        req.content_receiver = [&](const char* chunk_data, size_t len, uint64_t /*off*/, uint64_t /*total*/) {
-            spdlog::debug("LLM Chunk received: {} bytes", len);
-            std::string chunk(chunk_data, len);
-            std::istringstream ss(chunk);
-            std::string line;
-            while (std::getline(ss, line)) {
-                if (line.rfind("data: ", 0) != 0) continue;
+        size_t pos;
+        while ((pos = d->buffer.find('\n')) != std::string::npos) {
+            std::string line = d->buffer.substr(0, pos);
+            d->buffer.erase(0, pos + 1);
+
+            if (line.rfind("data: ", 0) == 0) {
                 std::string json_str = line.substr(6);
-                if (json_str == "[DONE]") continue;
+                if (json_str == "[DONE]" || json_str.empty()) continue;
                 try {
                     auto j = json::parse(json_str);
-                    if (j["choices"][0]["delta"].contains("content")) {
-                        std::string tok = j["choices"][0]["delta"]["content"];
-                        data->on_event({"token", tok});
-                        full_response += tok;
+                    if (j.contains("choices") && !j["choices"].empty()) {
+                        auto& delta = j["choices"][0]["delta"];
+                        if (delta.contains("content")) {
+                            std::string tok = delta["content"];
+                            d->on_event({"token", tok});
+                            d->result += tok;
+                        }
                     }
-                } catch (...) {}
+                } catch (const std::exception& e) {
+                    spdlog::warn("JSON parse error in curl write_cb: {} (str: {})", e.what(), json_str);
+                }
             }
-            return true;
-        };
-
-        auto res = cli.send(req);
-        if (!res || res->status != 200) {
-            int code = res ? res->status : 0;
-            spdlog::error("LLM HTTP error: {}", code);
-            data->result = "Error: LLM call failed (HTTP " + std::to_string(code) + ")";
-        } else {
-            data->result = full_response;
         }
-
-        // Pulse the loop to resume the fiber
-        uv_async_send(&data->async);
-    });
-    t.detach();
-
-    // Suspend fiber until LLM call completes
-    fiber_suspend(0);
-
-    std::string res = data->result;
+        return total;
+    };
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, (curl_write_callback)write_cb);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, data);
     
-    // Cleanup libuv async handle (must be done on loop thread)
-    // For simplicity here, we assume the next fiber tick will handle it 
-    // or we could use another async to close it.
-    uv_close((uv_handle_t*)&data->async, [](uv_handle_t* h) {
-        delete (CallData*)h->data;
-    });
+    // SSL & Timeouts
+    curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(easy, CURLOPT_TIMEOUT, 300L);
 
-    return res;
+    spdlog::debug("Starting Async LLM call via CurlMulti for fiber {}", (void*)data->fiber);
+    // Start request
+    CurlMultiManager::instance().add_handle(easy);
+
+    // Wait for completion
+    fiber_suspend(0);
+    spdlog::debug("Async LLM call resumed for fiber {}", (void*)data->fiber);
+
+    // Cleanup
+    CurlMultiManager::instance().remove_handle(easy);
+    curl_slist_free_all(data->headers);
+    curl_easy_cleanup(easy);
+
+    std::string final_res = data->result;
+    delete data;
+    return final_res;
 }

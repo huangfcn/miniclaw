@@ -4,8 +4,9 @@ project(miniclaw VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find OpenSSL for httplib
+# Find OpenSSL and CURL
 find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
 
 # Define include directories for external libraries
 set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
@@ -18,7 +19,6 @@ add_executable(miniclaw
 target_include_directories(miniclaw PRIVATE 
     src
     ${EXTERNAL_DIR}/json
-    ${EXTERNAL_DIR}/cpp-httplib
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/Crow/include
     ${EXTERNAL_DIR}/asio/include
@@ -36,6 +36,7 @@ target_compile_definitions(miniclaw PRIVATE
 target_link_libraries(miniclaw PRIVATE 
     OpenSSL::SSL 
     OpenSSL::Crypto
+    CURL::libcurl
     pthread
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
@@ -48,6 +49,7 @@ target_include_directories(test_fiber PRIVATE
 )
 target_link_libraries(test_fiber PRIVATE 
     pthread
+    CURL::libcurl
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
 )

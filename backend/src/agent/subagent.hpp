@@ -85,7 +85,7 @@ private:
             }
             delete d;
             return nullptr;
-        }, data, NULL, 64 * 1024); // 64KB stack
+        }, data, NULL, 1024 * 1024); // 2MB stack
     }
 
     void announce_result(const std::string& label, const std::string& task, const std::string& result, const std::string& session_id) {
