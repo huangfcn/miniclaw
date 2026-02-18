@@ -1,5 +1,6 @@
 backend/miniclaw_backend
 backend/backend.log
+backend/external/
 backend/external/asio/
 backend/external/cpp-httplib/
 backend/external/Crow/

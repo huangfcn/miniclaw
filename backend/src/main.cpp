@@ -2,11 +2,34 @@
 #include "agent.hpp"
 #include <crow.h>
 #include <spdlog/spdlog.h>
+#include <fiber.h>
+#include <uv.h>
+#include <thread>
 
 using json = nlohmann::json;
 
 int main() {
     spdlog::info("Starting miniclaw Backend (C++)");
+    spdlog::set_level(spdlog::level::debug);
+
+    FiberGlobalStartup();
+    init_spawn_system();
+    
+    // libuv bridge: allow fiber scheduler to pulse the libuv loop
+    static auto uv_bridge = [](void* arg) -> bool {
+        uv_run((uv_loop_t*)arg, UV_RUN_NOWAIT);
+        return true;
+    };
+
+    static fibthread_args_t fiber_args;
+    fiber_args.fiberSchedulerCallback = uv_bridge;
+    fiber_args.args = uv_default_loop();
+
+    std::thread fiber_sched_thread([]() {
+        FiberThreadStartup();
+        fiber_thread_entry(&fiber_args);
+    });
+    fiber_sched_thread.detach();
 
     crow::SimpleApp app;
 

@@ -14,17 +14,21 @@
 #include "context.hpp"
 #include "session.hpp"
 #include "../tools/tool.hpp"
+#include <fiber.hpp>
 
-// Event types streamed back to the caller (mirrors SSE event types in main.cpp)
+// Event types streamed back to the caller
 struct AgentEvent {
     std::string type;    // "token" | "tool_start" | "tool_end" | "done" | "error"
     std::string content;
 };
 
 using EventCallback = std::function<void(const AgentEvent&)>;
+
+// LLMCallFn is now "synchronous" from the point of view of the fiber.
+// It will suspend the fiber and resume when metadata/tokens arrive.
 using LLMCallFn = std::function<std::string(
     const std::vector<Message>& messages,
-    std::function<void(const std::string& token)> on_token
+    EventCallback on_event
 )>;
 
 class AgentLoop {
@@ -77,9 +81,7 @@ public:
         while (iteration < max_iterations_) {
             ++iteration;
 
-            std::string response = llm_fn_(messages, [&](const std::string& token) {
-                on_event({"token", token});
-            });
+            std::string response = llm_fn_(messages, on_event);
 
             if (response.empty() || response.rfind("Error", 0) == 0) {
                 on_event({"error", response.empty() ? "LLM returned empty response" : response});
@@ -167,8 +169,8 @@ public:
             {"user", prompt}
         };
 
-        // Call LLM synchronously for consolidation (or we could use a separate thread)
-        std::string result_str = llm_fn_(msgs, [](const std::string&){});
+        // Call LLM synchronously for consolidation (it will block the fiber)
+        std::string result_str = llm_fn_(msgs, [](const AgentEvent&){});
         
         try {
             // Find JSON in response

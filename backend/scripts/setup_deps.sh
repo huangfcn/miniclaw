@@ -52,4 +52,20 @@ mv asio-asio-1-30-2/asio asio
 rm -rf asio-asio-1-30-2
 rm asio.tar.gz
 
+# 6. libuv (I/O Engine)
+echo "📦 Downloading and building libuv..."
+curl -L https://github.com/libuv/libuv/archive/refs/tags/v1.48.0.tar.gz -o libuv.tar.gz
+tar -xzf libuv.tar.gz
+rm -rf libuv_src
+mv libuv-1.48.0 libuv_src
+rm libuv.tar.gz
+mkdir -p libuv
+cd libuv_src
+mkdir -p build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX="$EXTERNAL_DIR/libuv" -DBUILD_TESTING=OFF
+make -j4
+make install
+cd "$EXTERNAL_DIR"
+
 echo "✅ All dependencies settled in $EXTERNAL_DIR"
