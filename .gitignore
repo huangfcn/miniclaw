@@ -1,2 +1,7 @@
 backend/miniclaw_backend
 backend/backend.log
+backend/external/asio/
+backend/external/cpp-httplib/
+backend/external/Crow/
+backend/external/json/
+backend/external/spdlog/
