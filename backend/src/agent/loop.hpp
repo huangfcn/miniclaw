@@ -182,10 +182,6 @@ public:
             }
 
             if (response.has_tool_calls()) {
-                // Stream any thinking content to the user
-                if (!response.content.empty()) {
-                    on_event({"token", response.content});
-                }
 
                 // Append the assistant message with tool_calls
                 messages.push_back(make_assistant_tool_call_message(response.content, response.tool_calls));

@@ -739,3 +739,35 @@ ASSISTANT: I will fetch the live current weather for London using wttr.in.I will
 
 [2026-02-19 10:09:17] ASSISTANT: London: ⛅️ +6°C 87% ↘10 km/h
 
+[2026-02-19 10:14:55] USER: what is the weather of london now?
+
+[2026-02-19 10:15:01] TOOL exec: {"command":"curl -s \"https://wttr.in/London?format=%l:+%c+%t+%h+%w\""}
+
+[2026-02-19 10:15:33] TOOL_OUTPUT: (no output)
+
+[2026-02-19 10:15:39] TOOL exec: {"command":"curl -s \"https://wttr.in/London?format=3\""}
+
+[2026-02-19 10:16:42] TOOL_OUTPUT: (no output)
+
+[2026-02-19 10:16:50] TOOL exec: {"command":"curl -s \"https://api.open-meteo.com/v1/forecast?latitude=51.5&longitude=-0.12&current_weather=true\""}
+
+[2026-02-19 10:16:51] TOOL_OUTPUT: {"latitude":51.5,"longitude":-0.120000124,"generationtime_ms":0.12934207916259766,"utc_offset_seconds":0,"timezone":"GMT","timezone_abbreviation":"GMT","elevation":1.0,"current_weather_units":{"time":"iso8601","interval":"seconds","temperature":"°C","windspeed":"km/h","winddirection":"°","is_day":"","weathercode":"wmo code"},"current_weather":{"time":"2026-02-19T15:15","interval":900,"temperature":6.8,"windspeed":10.3,"winddirection":335,"is_day":1,"weathercode":3}}
+
+[2026-02-19 10:17:01] ASSISTANT: London: Overcast, 6.8°C, wind NNW 10 km/h (as of 15:15 GMT).
+
+[2026-02-19 10:21:22] USER: what is the weather in London now?
+
+[2026-02-19 10:21:29] TOOL exec: {"command":"curl -s \"https://wttr.in/London?format=%l:+%c+%t+%h+%w&m\""}
+
+[2026-02-19 10:21:53] TOOL_OUTPUT: London: 🌦   +6°C 87% ↘12km/h
+
+[2026-02-19 10:21:53] ASSISTANT: London: 🌦 +6°C 87% wind ↘12 km/h (wttr.in)
+
+[2026-02-19 10:22:40] USER: what is the weather of london now?
+
+[2026-02-19 10:22:45] TOOL exec: {"command":"curl -s \"https://wttr.in/London?format=%l:+%c+%t+%h+%w\""}
+
+[2026-02-19 10:22:52] TOOL_OUTPUT: London: 🌦   +43°F 87% ↘7mph
+
+[2026-02-19 10:22:53] ASSISTANT: London: 🌦 +6°C 87% ↘11 km/h
+
