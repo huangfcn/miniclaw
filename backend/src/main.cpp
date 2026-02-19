@@ -1,4 +1,3 @@
-#include <nlohmann/json.hpp>
 #include "agent.hpp"
 #include <spdlog/spdlog.h>
 #include <csignal> 
@@ -13,6 +12,7 @@
 #include <unistd.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include "config.hpp"
 
 // Globals for signal handling
 static std::mutex mtx;
@@ -41,23 +41,36 @@ void signal_handler(int signum) {
 }
 
 int main() {
+    // Load Configuration
+    Config::instance().load();
+
     // Configure multi-sink logger (Console + File)
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_level(spdlog::level::debug);
+    
+    std::string level_str = Config::instance().logging_level();
+    spdlog::level::level_enum log_level = spdlog::level::from_str(level_str);
+    console_sink->set_level(log_level);
 
-    std::string log_path = "backend.log";
-    const char* ws_dir = std::getenv("WORKSPACE_DIR");
-    if (ws_dir) {
-        log_path = std::string(ws_dir) + "/backend.log";
+    std::vector<spdlog::sink_ptr> sinks;
+    sinks.push_back(console_sink);
+
+    if (Config::instance().logging_enabled()) {
+        std::string log_file = Config::instance().logging_file();
+        std::string log_path = log_file;
+        const char* env_ws = std::getenv("WORKSPACE_DIR");
+        if (env_ws) {
+            log_path = std::string(env_ws) + "/" + log_file;
+        }
+
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_path, false);
+        file_sink->set_level(log_level);
+        sinks.push_back(file_sink);
     }
 
-    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_path, false);
-    file_sink->set_level(spdlog::level::debug);
-
-    auto logger = std::make_shared<spdlog::logger>("multi_sink", spdlog::sinks_init_list{console_sink, file_sink});
+    auto logger = std::make_shared<spdlog::logger>("multi_sink", sinks.begin(), sinks.end());
     spdlog::set_default_logger(logger);
-    spdlog::set_level(spdlog::level::debug);
-    spdlog::flush_on(spdlog::level::info); // Ensure logs are flushed to file periodically
+    spdlog::set_level(log_level);
+    spdlog::flush_on(spdlog::level::debug);
 
     spdlog::info("Starting miniclaw Backend (C++) with uWebSockets");
 
@@ -65,12 +78,14 @@ int main() {
     
     static Agent global_agent;
 
-    // Initialize FiberPool with 4 threads and the global agent
-    FiberPool::instance().init(4, &global_agent);
+    // Initialize FiberPool with threads and the global agent from config
+    int threads = Config::instance().server_threads();
+    FiberPool::instance().init(threads, &global_agent);
     
     init_spawn_system();
 
-    spdlog::info("Backend running on port 9000 (Non-blocking Fiber Nodes)");
+    int port = Config::instance().server_port();
+    spdlog::info("Backend running on port {} (Non-blocking Fiber Nodes)", port);
 
     // Register signal handler for Ctrl-C
     std::signal(SIGINT, signal_handler);

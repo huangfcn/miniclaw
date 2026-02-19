@@ -2,10 +2,9 @@
 #include "curl_manager.hpp"
 #include <spdlog/spdlog.h>
 
+#include <simdjson.h>
 #include "agent.hpp"
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+#include "json_util.hpp"
 
 FiberNode::FiberNode(Agent* agent) : agent_(agent) {
     uv_loop_init(&loop_);
@@ -73,19 +72,16 @@ void FiberNode::thread_func() {
            ->writeHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
            ->writeHeader("Access-Control-Allow-Headers", "content-type, authorization")
            ->end();
-    }).get("/v1/models", [](auto *res, auto *req) {
         res->writeHeader("Access-Control-Allow-Origin", "*")
            ->writeHeader("Content-Type", "application/json");
-        json response = {
-            {"object", "list"},
-            {"data", {
-                {{"id", "miniclaw"}, {"object", "model"}, {"created", 1686935002}, {"owned_by", "miniclaw"}},
-                {{"id", "gpt-4o-mini"}, {"object", "model"}, {"created", 1721251200}, {"owned_by", "openai"}},
-                {{"id", "gpt-5"}, {"object", "model"}, {"created", 1750000000}, {"owned_by", "openai"}},
-                {{"id", "gpt-5-mini"}, {"object", "model"}, {"created", 1750000001}, {"owned_by", "openai"}}
-            }}
-        };
-        res->end(response.dump());
+        
+        std::string response = "{\"object\":\"list\",\"data\":["
+            "{\"id\":\"miniclaw\",\"object\":\"model\",\"created\":1686935002,\"owned_by\":\"miniclaw\"},"
+            "{\"id\":\"gpt-4o-mini\",\"object\":\"model\",\"created\":1721251200,\"owned_by\":\"openai\"},"
+            "{\"id\":\"gpt-5\",\"object\":\"model\",\"created\":1750000000,\"owned_by\":\"openai\"},"
+            "{\"id\":\"gpt-5-mini\",\"object\":\"model\",\"created\":1750000001,\"owned_by\":\"openai\"}"
+        "]}";
+        res->end(response);
     }).post("/v1/chat/completions", [this](auto *res, auto *req) {
         auto aborted = std::make_shared<bool>(false);
         auto body_buffer = std::make_shared<std::string>();
@@ -104,17 +100,30 @@ void FiberNode::thread_func() {
             if (*aborted) return;
             body_buffer->append(data.data(), data.length());
             if (last) {
-                auto x = json::parse(*body_buffer, nullptr, false);
-                if (x.is_discarded()) {
+                simdjson::dom::parser parser;
+                simdjson::dom::element x;
+                auto error = parser.parse(*body_buffer).get(x);
+                if (error) {
                     res->writeStatus("400 Bad Request")->end("Invalid JSON");
                     return;
                 }
 
                 // Extract last user message for miniclaw's current single-message processing
                 std::string message = "";
-                std::string requested_model = x.value("model", "unknown");
-                if (x.contains("messages") && x["messages"].is_array() && !x["messages"].empty()) {
-                    message = x["messages"].back().value("content", "");
+                std::string_view requested_model_sv;
+                (void)x["model"].get(requested_model_sv);
+                std::string requested_model = std::string(requested_model_sv.empty() ? "unknown" : requested_model_sv);
+
+                simdjson::dom::array messages;
+                if (!x["messages"].get(messages)) {
+                    if (messages.size() > 0) {
+                        simdjson::dom::element last_msg;
+                        if (!messages.at(messages.size() - 1).get(last_msg)) {
+                            std::string_view content_sv;
+                            (void)last_msg["content"].get(content_sv);
+                            message = std::string(content_sv);
+                        }
+                    }
                 }
                 
                 spdlog::info("OpenAI Chat Completion: model={}, session=default, msg_len={}", requested_model, message.length());
@@ -151,36 +160,20 @@ void FiberNode::thread_func() {
                         if (*aborted) return;
 
                         if (ev.type == "token") {
-                            json chunk = {
-                                {"id", chat_id},
-                                {"object", "chat.completion.chunk"},
-                                {"created", std::time(nullptr)},
-                                {"model", "miniclaw"},
-                                {"choices", {{
-                                    {"index", 0},
-                                    {"delta", {{"content", ev.content}}},
-                                    {"finish_reason", nullptr}
-                                }}}
-                            };
-                            res->write("data: " + chunk.dump() + "\n\n");
+                            std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
+                                std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
+                                "\"index\":0,\"delta\":{\"content\":\"" + json_util::escape(ev.content) + "\"},\"finish_reason\":null}]}";
+                            res->write("data: " + chunk + "\n\n");
                         } else if (ev.type == "done") {
-                            json chunk = {
-                                {"id", chat_id},
-                                {"object", "chat.completion.chunk"},
-                                {"created", std::time(nullptr)},
-                                {"model", "miniclaw"},
-                                {"choices", {{
-                                    {"index", 0},
-                                    {"delta", json::object()},
-                                    {"finish_reason", "stop"}
-                                }}}
-                            };
-                            res->write("data: " + chunk.dump() + "\n\n");
+                            std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
+                                std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
+                                "\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}";
+                            res->write("data: " + chunk + "\n\n");
                             res->write("data: [DONE]\n\n");
                             res->end();
                         } else if (ev.type == "error") {
                             // Non-standard but helpful
-                            res->write("data: {\"error\": \"" + ev.content + "\"}\n\n");
+                            res->write("data: {\"error\": \"" + json_util::escape(ev.content) + "\"}\n\n");
                             res->end();
                         }
                     });
@@ -206,15 +199,22 @@ void FiberNode::thread_func() {
             if (*aborted) return;
             body_buffer->append(data.data(), data.length());
             if (last) {
-                auto x = json::parse(*body_buffer, nullptr, false);
-                if (x.is_discarded()) {
+                simdjson::dom::parser parser;
+                simdjson::dom::element x;
+                auto error = parser.parse(*body_buffer).get(x);
+                if (error) {
                     res->writeStatus("400 Bad Request")->end("Invalid JSON");
                     return;
                 }
 
-                std::string message = x.value("message", "");
-                std::string session_id = x.value("session_id", "");
-                std::string requested_model = x.value("model", "default");
+                std::string_view message_sv, session_id_sv, requested_model_sv;
+                (void)x["message"].get(message_sv);
+                (void)x["session_id"].get(session_id_sv);
+                (void)x["model"].get(requested_model_sv);
+
+                std::string message = std::string(message_sv);
+                std::string session_id = std::string(session_id_sv);
+                std::string requested_model = std::string(requested_model_sv.empty() ? "default" : requested_model_sv);
 
                 spdlog::info("Internal Chat API: model={}, session={}, msg_len={}", requested_model, session_id, message.length());
 
@@ -244,8 +244,7 @@ void FiberNode::thread_func() {
                     
                     ctx->node->agent_->run(ctx->message, ctx->session_id, ctx->api_key, [res = ctx->res, aborted = ctx->aborted](const AgentEvent& ev) {
                         if (*aborted) return;
-                        json j = {{"type", ev.type}, {"content", ev.content}};
-                        std::string chunk = "data: " + j.dump() + "\n\n";
+                        std::string chunk = "data: {\"type\":\"" + json_util::escape(ev.type) + "\",\"content\":\"" + json_util::escape(ev.content) + "\"}\n\n";
                         res->write(chunk);
                         if (ev.type == "done" || ev.type == "error") {
                             res->end();

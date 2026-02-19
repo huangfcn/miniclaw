@@ -26,7 +26,8 @@ public:
         const std::string& user_message,
         const std::string& session_id,
         const std::string& api_key,
-        AgentEventCallback on_event
+        AgentEventCallback on_event,
+        const std::string& channel = ""
     );
 
 private:
@@ -34,9 +35,10 @@ private:
     std::unique_ptr<SessionManager> sessions_;
     std::unique_ptr<SubagentManager> subagents_;
 
-    // LLM HTTP call - now fiber-blocking
-    std::string call_llm(
+    // LLM HTTP call — fiber-blocking, returns structured LLMResponse
+    LLMResponse call_llm(
         const std::vector<Message>& messages,
+        const std::string& tools_json,
         AgentEventCallback on_event
     );
 

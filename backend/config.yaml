@@ -1,0 +1,19 @@
+server:
+  port: 9000
+  threads: 4
+
+openai:
+  model: "gpt-5"
+  # api_key: "sk-..." # Can be set here or via environment
+
+memory:
+  workspace: "."
+  consolidation_threshold: 100
+
+logging:
+  level: "debug"
+  file: "backend.log"
+  enabled: true
+
+skills:
+  path: "skills"

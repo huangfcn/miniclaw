@@ -27,6 +27,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(uWebSockets)
 
+# yaml-cpp
+FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG        0.8.0
+)
+FetchContent_MakeAvailable(yaml-cpp)
+
+# simdjson
+FetchContent_Declare(
+  simdjson
+  GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+  GIT_TAG        v3.10.1
+)
+FetchContent_MakeAvailable(simdjson)
+
 # Define include directories for external libraries
 set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
 
@@ -60,12 +76,14 @@ add_executable(miniclaw
 
 target_include_directories(miniclaw PRIVATE 
     src
-    ${EXTERNAL_DIR}/json
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/libuv/include
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/src
 )
 
 # Definitions for libfib / uWS
@@ -81,6 +99,8 @@ target_link_libraries(miniclaw PRIVATE
     ZLIB::ZLIB
     z
     pthread
+    yaml-cpp
+    simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
 )
@@ -93,6 +113,25 @@ target_include_directories(test_fiber PRIVATE
 target_link_libraries(test_fiber PRIVATE 
     pthread
     CURL::libcurl
+    simdjson
+    ${EXTERNAL_DIR}/libuv/lib/libuv.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+)
+add_executable(test_agent_loop tests/test_agent_loop.cpp)
+target_include_directories(test_agent_loop PRIVATE 
+    src
+    ${EXTERNAL_DIR}/spdlog/include
+    ${EXTERNAL_DIR}/libuv/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/src
+)
+target_link_libraries(test_agent_loop PRIVATE 
+    pthread
+    CURL::libcurl
+    yaml-cpp
+    simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
 )

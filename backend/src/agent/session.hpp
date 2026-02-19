@@ -11,20 +11,20 @@
 #include <chrono>
 #include <ctime>
 #include <mutex>
-#include <nlohmann/json.hpp>
+#include <simdjson.h>
 #include <spdlog/spdlog.h>
+#include "../json_util.hpp"
 
 #include "context.hpp" // For Message struct
 
 namespace fs = std::filesystem;
-using json = nlohmann::json;
 
 struct Session {
     std::string key;
     std::vector<Message> messages;
     std::string created_at;
     std::string updated_at;
-    json metadata;
+    std::string metadata = "{}"; // Store raw JSON string
     int last_consolidated = 0;
 
     void add_message(const std::string& role, const std::string& content) {
@@ -79,19 +79,17 @@ public:
         }
 
         // Metadata line
-        json meta = {
-            {"_type", "metadata"},
-            {"created_at", session.created_at},
-            {"updated_at", session.updated_at},
-            {"metadata", session.metadata},
-            {"last_consolidated", session.last_consolidated}
-        };
-        f << meta.dump() << "\n";
+        std::string meta_line = "{\"_type\":\"metadata\",\"created_at\":\"" + session.created_at + 
+                               "\",\"updated_at\":\"" + session.updated_at + 
+                               "\",\"metadata\":" + session.metadata + 
+                               ",\"last_consolidated\":" + std::to_string(session.last_consolidated) + "}";
+        f << meta_line << "\n";
 
         // Message lines
         for (const auto& msg : session.messages) {
-            json jmsg = {{"role", msg.role}, {"content", msg.content}};
-            f << jmsg.dump() << "\n";
+            std::string jmsg = "{\"role\":\"" + json_util::escape(msg.role) + 
+                              "\",\"content\":\"" + json_util::escape(msg.content) + "\"}";
+            f << jmsg << "\n";
         }
 
         cache_[session.key] = session;
@@ -123,19 +121,33 @@ private:
 
         std::ifstream f(path);
         std::string line;
+        simdjson::dom::parser parser;
         while (std::getline(f, line)) {
             if (line.empty()) continue;
-            try {
-                json data = json::parse(line);
-                if (data.contains("_type") && data["_type"] == "metadata") {
-                    session.metadata = data["metadata"];
-                    session.created_at = data["created_at"];
-                    session.last_consolidated = data["last_consolidated"];
+            simdjson::dom::element data;
+            auto error = parser.parse(line).get(data);
+            if (!error) {
+                std::string_view type_sv;
+                if (!data["_type"].get(type_sv) && type_sv == "metadata") {
+                    // It's metadata
+                    session.metadata = simdjson::to_string(data["metadata"]);
+                    
+                    std::string_view created_sv;
+                    (void)data["created_at"].get(created_sv);
+                    session.created_at = std::string(created_sv);
+                    
+                    int64_t consolidated;
+                    if (!data["last_consolidated"].get(consolidated)) {
+                        session.last_consolidated = (int)consolidated;
+                    }
                 } else {
-                    session.messages.push_back({data["role"], data["content"]});
+                    std::string_view role_sv, content_sv;
+                    (void)data["role"].get(role_sv);
+                    (void)data["content"].get(content_sv);
+                    session.messages.push_back({std::string(role_sv), std::string(content_sv)});
                 }
-            } catch (const std::exception& e) {
-                spdlog::warn("Failed to parse session line: {}", e.what());
+            } else {
+                spdlog::warn("simdjson parse error in session load: {} (line: {})", (int)error, line);
             }
         }
         return session;
