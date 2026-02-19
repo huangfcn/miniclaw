@@ -1,10 +1,13 @@
-backend/miniclaw_backend
+# backend 
 backend/backend.log
-backend/external/asio/
-backend/external/cpp-httplib/
-backend/external/Crow/
-backend/external/json/
-backend/external/spdlog/
-
+backend/external/
 backend/build
-fiber/
+
+# test output
+backend/*test*.txt
+
+# backend.rs
+backend.rs/target/
+
+frontend/
+.webui*

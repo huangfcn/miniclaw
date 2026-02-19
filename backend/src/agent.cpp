@@ -1,19 +1,37 @@
+#include <uv.h>
+#include <fiber.hpp>
 #include "agent.hpp"
-#include "agent/subagent.hpp"
-
 #include <spdlog/spdlog.h>
-#include <sstream>
-
-#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include <httplib.h>
 #include <nlohmann/json.hpp>
+#include <curl/curl.h>
+#include <sstream>
+#include <thread>
+#include <mutex>
+#include <queue>
+#include <condition_variable>
 
+#include "agent/subagent.hpp"
+#include "agent/fiber_pool.hpp"
+#include "agent/curl_manager.hpp"
 #include "tools/terminal.hpp"
 #include "tools/file.hpp"
 #include "tools/web.hpp"
 #include "tools/spawn.hpp"
 
-using json = nlohmann::json;
+// Remove old global spawn system
+// static std::queue<std::function<void()>> g_spawn_queue;
+// static std::mutex g_spawn_mtx;
+// static uv_async_t g_spawn_async;
+
+void init_spawn_system() {
+    curl_global_init(CURL_GLOBAL_ALL);
+    // CurlMultiManager is now initialized per FiberNode thread
+    spdlog::info("Spawn system (FiberPool) ready");
+}
+
+void spawn_in_fiber(std::function<void()> task) {
+    FiberPool::instance().spawn(std::move(task));
+}
 
 Agent::~Agent() = default;
 
@@ -26,9 +44,9 @@ Agent::Agent() {
     // Build the LLM call function (captures this)
     LLMCallFn llm_fn = [this](
         const std::vector<Message>& messages,
-        std::function<void(const std::string&)> on_token
+        AgentEventCallback on_event
     ) -> std::string {
-        return call_llm(messages, on_token);
+        return call_llm(messages, on_event);
     };
 
     loop_ = std::make_unique<AgentLoop>(workspace_, llm_fn, /*max_iterations=*/10);
@@ -49,71 +67,196 @@ Agent::Agent() {
 void Agent::run(
     const std::string& user_message,
     const std::string& session_id,
+    const std::string& api_key,
     AgentEventCallback on_event
 ) {
     auto session = sessions_->get_or_create(session_id);
     
-    // Update tools that need session context
-    auto spawn_tool = std::dynamic_pointer_cast<SpawnTool>(loop_->get_tool("spawn"));
-    if (spawn_tool) spawn_tool->set_context(session_id);
+    // Set session_id and api_key in Fiber Local Storage
+    // Index 0: session_id, Index 1: api_key
+    auto* fiber_tcb = fiber_ident();
+    if (fiber_tcb) {
+        fiber_set_localdata(fiber_tcb, 0, reinterpret_cast<uint64_t>(new std::string(session_id)));
+        fiber_set_localdata(fiber_tcb, 1, reinterpret_cast<uint64_t>(new std::string(api_key.empty() ? api_key_ : api_key)));
+    }
 
-    loop_->process(user_message, session, on_event);
+    try {
+        loop_->process(user_message, session, on_event);
+    } catch (const std::exception& e) {
+        spdlog::error("Error in Agent::run: {}", e.what());
+        on_event({"error", e.what()});
+    }
+
+    // Cleanup Fiber Local Storage
+    if (fiber_tcb) {
+        auto* s0 = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 0));
+        auto* s1 = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 1));
+        delete s0;
+        delete s1;
+        fiber_set_localdata(fiber_tcb, 0, 0);
+        fiber_set_localdata(fiber_tcb, 1, 0);
+    }
+
+    // Save updated session state
     sessions_->save(session);
 }
 
+// Global libuv loop for the agent
+static uv_loop_t* g_loop = uv_default_loop();
+
 std::string Agent::call_llm(
     const std::vector<Message>& messages,
-    std::function<void(const std::string&)> on_token
+    AgentEventCallback on_event
 ) {
-    // Build JSON payload
+    struct CallData {
+        Agent* self;
+        AgentEventCallback on_event;
+        std::string result;
+        std::string buffer; // raw buffer for parsing chunks
+        fiber_t fiber;
+        std::function<void(CURLcode)> completion_cb;
+        struct curl_slist* headers = nullptr;
+    };
+
+    auto* data = new CallData{this, on_event, "", "", fiber_ident(), nullptr, nullptr};
+    data->completion_cb = [data](CURLcode code) {
+        if (code != CURLE_OK) {
+            spdlog::error("CURL error: {}", curl_easy_strerror(code));
+            if (data->result.empty()) {
+                data->result = "Error: LLM call failed (Curl " + std::to_string(code) + ")";
+            }
+        }
+        fiber_resume(data->fiber);
+    };
+
+    CURL* easy = curl_easy_init();
+    
+    // Build payload
     json j_messages = json::array();
     for (const auto& m : messages) {
         j_messages.push_back({{"role", m.role}, {"content", m.content}});
     }
+
     json payload = {
         {"model",    model_},
         {"messages", j_messages},
         {"stream",   true}
     };
+    std::string payload_str = payload.dump();
+    // spdlog::info("---- send to LLM -----\n{}", payload_str); // Log LLM Input
 
-    httplib::Client cli("https://" + api_base_);
-    cli.set_bearer_token_auth(api_key_);
-    cli.set_read_timeout(300, 0);
+    // Headers
+    data->headers = curl_slist_append(data->headers, "Content-Type: application/json");
+    
+    // Get API key from Fiber Local Storage (Index 1) or fallback to internal
+    std::string effective_key = api_key_;
+    auto* fiber_tcb = fiber_ident();
+    if (fiber_tcb) {
+        auto* key_ptr = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 1));
+        if (key_ptr && !key_ptr->empty()) effective_key = *key_ptr;
+    }
 
-    std::string full_response;
+    std::string auth = "Authorization: Bearer " + effective_key;
+    data->headers = curl_slist_append(data->headers, auth.c_str());
 
-    httplib::Request req;
-    req.method = "POST";
-    req.path = "/v1/chat/completions";
-    req.headers = {{"Content-Type", "application/json"}};
-    req.body = payload.dump();
-    req.content_receiver = [&](const char* data, size_t len, uint64_t /*off*/, uint64_t /*total*/) {
-        std::string chunk(data, len);
-        std::istringstream ss(chunk);
-        std::string line;
-        while (std::getline(ss, line)) {
-            if (line.rfind("data: ", 0) != 0) continue;
-            std::string json_str = line.substr(6);
-            if (json_str == "[DONE]") continue;
+    // URL
+    std::string url = api_base_;
+    if (url.find("http://") != 0 && url.find("https://") != 0) {
+        url = "https://" + url;
+    }
+    // Remove trailing slash if present
+    while (!url.empty() && url.back() == '/') url.pop_back();
+    // Append /v1 only if not already present
+    if (url.size() < 3 || url.substr(url.size() - 3) != "/v1") {
+        url += "/v1";
+    }
+    url += "/chat/completions";
+    spdlog::info("LLM URL: {}", url);
+
+    curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS, payload_str.c_str());
+    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, data->headers);
+    curl_easy_setopt(easy, CURLOPT_PRIVATE, &data->completion_cb);
+    
+    // Write callback for streaming
+    auto write_cb = [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        size_t total = size * nmemb;
+        auto* d = (CallData*)userdata;
+        d->buffer.append(ptr, total);
+
+        size_t pos;
+        while ((pos = d->buffer.find('\n')) != std::string::npos) {
+            std::string line = d->buffer.substr(0, pos);
+            d->buffer.erase(0, pos + 1);
+
+            if (line.rfind("data: ", 0) == 0) {
+                std::string json_str = line.substr(6);
+                if (json_str == "[DONE]" || json_str.empty()) continue;
+                try {
+                    auto j = json::parse(json_str);
+                    if (j.contains("choices") && !j["choices"].empty()) {
+                        auto& delta = j["choices"][0]["delta"];
+                        if (delta.contains("content")) {
+                            std::string tok = delta["content"];
+                            d->on_event({"token", tok});
+                            d->result += tok;
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    spdlog::warn("JSON parse error in curl write_cb: {} (str: {})", e.what(), json_str);
+                }
+            } else if (!line.empty()) {
+                spdlog::debug("Unexpected LLM response line: {}", line);
+                if (d->result.empty() && line.find('{') != std::string::npos) {
+                    // Likely an error JSON
+                    try {
+                        auto j = json::parse(line);
+                        if (j.contains("error")) {
+                            d->result = "Error: " + j["error"].dump();
+                        }
+                    } catch (...) {}
+                }
+            }
+        }
+        return total;
+    };
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, (curl_write_callback)write_cb);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, data);
+    
+    // SSL & Timeouts
+    curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(easy, CURLOPT_TIMEOUT, 300L);
+
+    spdlog::debug("Starting Async LLM call via CurlMulti for fiber {}", (void*)data->fiber);
+    // Start request
+    CurlMultiManager::instance().add_handle(easy);
+
+    // Wait for completion
+    fiber_suspend(0);
+    spdlog::debug("Async LLM call resumed for fiber {}", (void*)data->fiber);
+
+    // Process leftover buffer (e.g. error JSON without newline)
+    if (!data->buffer.empty()) {
+        std::string line = data->buffer;
+        if (line.rfind("data: ", 0) == 0) {
+            // ... (optional: handle data: [DONE] if missing newline)
+        } else {
             try {
-                auto j = json::parse(json_str);
-                if (j["choices"][0]["delta"].contains("content")) {
-                    std::string tok = j["choices"][0]["delta"]["content"];
-                    on_token(tok);
-                    full_response += tok;
+                auto j = json::parse(line);
+                if (j.contains("error")) {
+                    data->result = "Error: " + j["error"].dump();
                 }
             } catch (...) {}
         }
-        return true;
-    };
-
-    auto res = cli.send(req);
-
-    if (!res || res->status != 200) {
-        int code = res ? res->status : 0;
-        spdlog::error("LLM HTTP error: {}", code);
-        return "Error: LLM call failed (HTTP " + std::to_string(code) + ")";
     }
 
-    return full_response;
+    // Cleanup
+    CurlMultiManager::instance().remove_handle(easy);
+    curl_slist_free_all(data->headers);
+    curl_easy_cleanup(easy);
+
+    std::string final_res = data->result;
+    // spdlog::info("----- receive from LLM -----\n{}", final_res); // Log LLM Output
+    delete data;
+    return final_res;
 }

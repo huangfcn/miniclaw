@@ -1,16 +1,66 @@
 #pragma once
-// WebTools — mirrors nanobot/nanobot/agent/tools/web.py
-// web_search: Search the web using Brave Search API
-// web_fetch:  Fetch a URL and extract text content (HTML -> text)
-
 #include "tool.hpp"
 #include <string>
 #include <vector>
 #include <regex>
+#include <sstream>
 #include <nlohmann/json.hpp>
-#include <httplib.h>
+#include <curl/curl.h>
+#include <fiber.hpp>
+#include "../agent/curl_manager.hpp"
 
 using json = nlohmann::json;
+
+// Helper to perform a fiber-blocking CURL request
+inline std::string curl_fetch(const std::string& url, const std::vector<std::string>& headers = {}) {
+    struct CurlData {
+        std::string buffer;
+        fiber_t fiber;
+        std::function<void(CURLcode)> callback;
+        struct curl_slist* header_list = nullptr;
+    };
+
+    auto* data = new CurlData{ "", fiber_ident(), nullptr, nullptr };
+    data->callback = [data](CURLcode code) {
+        fiber_resume(data->fiber);
+    };
+
+    CURL* easy = curl_easy_init();
+    curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(easy, CURLOPT_PRIVATE, &data->callback);
+    curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(easy, CURLOPT_TIMEOUT, 30L);
+
+    for (const auto& h : headers) {
+        data->header_list = curl_slist_append(data->header_list, h.c_str());
+    }
+    if (data->header_list) {
+        curl_easy_setopt(easy, CURLOPT_HTTPHEADER, data->header_list);
+    }
+
+    auto write_cb = [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        size_t total = size * nmemb;
+        ((CurlData*)userdata)->buffer.append(ptr, total);
+        return total;
+    };
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, (curl_write_callback)write_cb);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, data);
+
+    CurlMultiManager::instance().add_handle(easy);
+    fiber_suspend(0);
+
+    long response_code = 0;
+    curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response_code);
+    std::string result = (response_code == 200) ? data->buffer : "Error: HTTP " + std::to_string(response_code);
+
+    CurlMultiManager::instance().remove_handle(easy);
+    if (data->header_list) curl_slist_free_all(data->header_list);
+    curl_easy_cleanup(easy);
+    delete data;
+
+    return result;
+}
 
 class WebSearchTool : public Tool {
 public:
@@ -25,17 +75,15 @@ public:
         if (api_key_.empty()) return "Error: BRAVE_API_KEY not configured";
 
         std::string query = input;
-        // Simple search logic using Brave API
-        httplib::Client cli("https://api.search.brave.com");
-        
-        auto res = cli.Get("/res/v1/web/search?q=" + httplib::detail::encode_url(query),
-                          {{"X-Subscription-Token", api_key_}});
-        if (!res || res->status != 200) {
-            return "Error: Search failed (HTTP " + std::to_string(res ? res->status : 0) + ")";
-        }
+        char* encoded = curl_easy_escape(nullptr, query.c_str(), query.length());
+        std::string url = "https://api.search.brave.com/res/v1/web/search?q=" + std::string(encoded);
+        curl_free(encoded);
+
+        std::string res = curl_fetch(url, {"X-Subscription-Token: " + api_key_});
+        if (res.find("Error:") == 0) return res;
 
         try {
-            auto j = json::parse(res->body);
+            auto j = json::parse(res);
             std::stringstream ss;
             ss << "Search results for: " << query << "\n\n";
             int count = 0;
@@ -61,43 +109,19 @@ public:
     std::string description() const override { return "Fetch a URL and extract text content"; }
     std::string execute(const std::string& input) override {
         std::string url = input;
-        
-        // Use httplib to fetch the URL
-        // Note: For simplicity, we handle only simple URLs for now
-        // A full implementation would need to parse the domain and scheme
-        std::regex url_re(R"(^(https?://)([^/]+)(.*)$)", std::regex::icase);
-        std::smatch m;
-        if (!std::regex_match(url, m, url_re)) {
-            return "Error: Invalid URL format. Must start with http:// or https://";
-        }
+        std::string res = curl_fetch(url);
+        if (res.find("Error:") == 0) return res;
 
-        std::string scheme = m[1];
-        std::string host = m[2];
-        std::string path = m[3].str().empty() ? "/" : m[3].str();
-
-        httplib::Client cli(scheme + host);
-        cli.set_follow_location(true);
-        cli.set_read_timeout(10, 0);
-        
-        auto res = cli.Get(path);
-        if (!res || res->status != 200) {
-            return "Error: Fetch failed (HTTP " + std::to_string(res ? res->status : 0) + ")";
-        }
-
-        std::string html = res->body;
-        return "URL: " + url + "\nContent (first 2000 chars):\n\n" + strip_html(html).substr(0, 2000);
+        return "URL: " + url + "\nContent (first 2000 chars):\n\n" + strip_html(res).substr(0, 2000);
     }
 
 private:
     std::string strip_html(std::string html) {
-        // Very basic HTML tag removal
         html = std::regex_replace(html, std::regex("<script[\\s\\S]*?</script>", std::regex::icase), "");
         html = std::regex_replace(html, std::regex("<style[\\s\\S]*?</style>", std::regex::icase), "");
         html = std::regex_replace(html, std::regex("<[^>]+>"), " ");
-        
-        // Normalize whitespace
         html = std::regex_replace(html, std::regex("[ \\t]+"), " ");
-        html = std::regex_replace(html, std::regex("\\n{2,}"), "\n\n");
+        html = std::regex_replace(html, std::regex("\\n{22,}"), "\n\n");
         return html;
     }
 };
