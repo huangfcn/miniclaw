@@ -3,6 +3,7 @@
 #include "agent.hpp"
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
+#include <simdjson.h>
 #include <curl/curl.h>
 #include <sstream>
 #include <thread>
@@ -17,6 +18,7 @@
 #include "tools/file.hpp"
 #include "tools/web.hpp"
 #include "tools/spawn.hpp"
+#include "config.hpp"
 
 // Remove old global spawn system
 // static std::queue<std::function<void()>> g_spawn_queue;
@@ -36,10 +38,10 @@ void spawn_in_fiber(std::function<void()> task) {
 Agent::~Agent() = default;
 
 Agent::Agent() {
-    api_key_   = std::getenv("OPENAI_API_KEY")  ? std::getenv("OPENAI_API_KEY")  : "";
+    api_key_   = Config::instance().openai_api_key();
     api_base_  = std::getenv("OPENAI_API_BASE") ? std::getenv("OPENAI_API_BASE") : "api.openai.com";
-    model_     = std::getenv("OPENAI_MODEL")    ? std::getenv("OPENAI_MODEL")    : "gpt-4-turbo";
-    workspace_ = std::getenv("WORKSPACE_DIR")   ? std::getenv("WORKSPACE_DIR")   : ".";
+    model_     = Config::instance().openai_model();
+    workspace_ = Config::instance().memory_workspace();
 
     // Build the LLM call function (captures this)
     LLMCallFn llm_fn = [this](
@@ -116,9 +118,13 @@ std::string Agent::call_llm(
         fiber_t fiber;
         std::function<void(CURLcode)> completion_cb;
         struct curl_slist* headers = nullptr;
+        simdjson::dom::parser parser;
     };
 
-    auto* data = new CallData{this, on_event, "", "", fiber_ident(), nullptr, nullptr};
+    auto* data = new CallData();
+    data->self = this;
+    data->on_event = on_event;
+    data->fiber = fiber_ident();
     data->completion_cb = [data](CURLcode code) {
         if (code != CURLE_OK) {
             spdlog::error("CURL error: {}", curl_easy_strerror(code));
@@ -192,29 +198,40 @@ std::string Agent::call_llm(
             if (line.rfind("data: ", 0) == 0) {
                 std::string json_str = line.substr(6);
                 if (json_str == "[DONE]" || json_str.empty()) continue;
-                try {
-                    auto j = json::parse(json_str);
-                    if (j.contains("choices") && !j["choices"].empty()) {
-                        auto& delta = j["choices"][0]["delta"];
-                        if (delta.contains("content")) {
-                            std::string tok = delta["content"];
-                            d->on_event({"token", tok});
-                            d->result += tok;
+                simdjson::dom::element j;
+                auto error = d->parser.parse(json_str).get(j);
+                if (!error) {
+                    simdjson::dom::array choices;
+                    if (!j["choices"].get(choices) && choices.size() > 0) {
+                        simdjson::dom::element delta;
+                        if (!choices.at(0)["delta"].get(delta)) {
+                            std::string_view content_sv;
+                            if (!delta["content"].get(content_sv)) {
+                                std::string tok = std::string(content_sv);
+                                d->on_event({"token", tok});
+                                d->result += tok;
+                            }
                         }
                     }
-                } catch (const std::exception& e) {
-                    spdlog::warn("JSON parse error in curl write_cb: {} (str: {})", e.what(), json_str);
+                } else {
+                    spdlog::warn("simdjson parse error in curl write_cb: {} (str: {})", (int)error, json_str);
                 }
             } else if (!line.empty()) {
                 spdlog::debug("Unexpected LLM response line: {}", line);
                 if (d->result.empty() && line.find('{') != std::string::npos) {
                     // Likely an error JSON
-                    try {
-                        auto j = json::parse(line);
-                        if (j.contains("error")) {
-                            d->result = "Error: " + j["error"].dump();
+                    simdjson::dom::element j;
+                    if (!d->parser.parse(line).get(j)) {
+                        simdjson::dom::element err;
+                        if (!j["error"].get(err)) {
+                            // simdjson doesn't have a direct dump() like nlohmann for elements
+                            // We can use simdjson::to_string(err) in recent versions or just get specific fields
+                            std::string_view msg;
+                            if (!err["message"].get(msg)) {
+                                d->result = "Error: " + std::string(msg);
+                            }
                         }
-                    } catch (...) {}
+                    }
                 }
             }
         }
@@ -241,12 +258,16 @@ std::string Agent::call_llm(
         if (line.rfind("data: ", 0) == 0) {
             // ... (optional: handle data: [DONE] if missing newline)
         } else {
-            try {
-                auto j = json::parse(line);
-                if (j.contains("error")) {
-                    data->result = "Error: " + j["error"].dump();
+            simdjson::dom::element j;
+            if (!data->parser.parse(line).get(j)) {
+                simdjson::dom::element err;
+                if (!j["error"].get(err)) {
+                    std::string_view msg;
+                    if (!err["message"].get(msg)) {
+                        data->result = "Error: " + std::string(msg);
+                    }
                 }
-            } catch (...) {}
+            }
         }
     }
 

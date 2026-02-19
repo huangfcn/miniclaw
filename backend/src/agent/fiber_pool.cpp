@@ -2,8 +2,9 @@
 #include "curl_manager.hpp"
 #include <spdlog/spdlog.h>
 
-#include "agent.hpp"
 #include <nlohmann/json.hpp>
+#include <simdjson.h>
+#include "agent.hpp"
 
 using json = nlohmann::json;
 
@@ -104,17 +105,30 @@ void FiberNode::thread_func() {
             if (*aborted) return;
             body_buffer->append(data.data(), data.length());
             if (last) {
-                auto x = json::parse(*body_buffer, nullptr, false);
-                if (x.is_discarded()) {
+                simdjson::dom::parser parser;
+                simdjson::dom::element x;
+                auto error = parser.parse(*body_buffer).get(x);
+                if (error) {
                     res->writeStatus("400 Bad Request")->end("Invalid JSON");
                     return;
                 }
 
                 // Extract last user message for miniclaw's current single-message processing
                 std::string message = "";
-                std::string requested_model = x.value("model", "unknown");
-                if (x.contains("messages") && x["messages"].is_array() && !x["messages"].empty()) {
-                    message = x["messages"].back().value("content", "");
+                std::string_view requested_model_sv;
+                (void)x["model"].get(requested_model_sv);
+                std::string requested_model = std::string(requested_model_sv.empty() ? "unknown" : requested_model_sv);
+
+                simdjson::dom::array messages;
+                if (!x["messages"].get(messages)) {
+                    if (messages.size() > 0) {
+                        simdjson::dom::element last_msg;
+                        if (!messages.at(messages.size() - 1).get(last_msg)) {
+                            std::string_view content_sv;
+                            (void)last_msg["content"].get(content_sv);
+                            message = std::string(content_sv);
+                        }
+                    }
                 }
                 
                 spdlog::info("OpenAI Chat Completion: model={}, session=default, msg_len={}", requested_model, message.length());
@@ -206,15 +220,22 @@ void FiberNode::thread_func() {
             if (*aborted) return;
             body_buffer->append(data.data(), data.length());
             if (last) {
-                auto x = json::parse(*body_buffer, nullptr, false);
-                if (x.is_discarded()) {
+                simdjson::dom::parser parser;
+                simdjson::dom::element x;
+                auto error = parser.parse(*body_buffer).get(x);
+                if (error) {
                     res->writeStatus("400 Bad Request")->end("Invalid JSON");
                     return;
                 }
 
-                std::string message = x.value("message", "");
-                std::string session_id = x.value("session_id", "");
-                std::string requested_model = x.value("model", "default");
+                std::string_view message_sv, session_id_sv, requested_model_sv;
+                (void)x["message"].get(message_sv);
+                (void)x["session_id"].get(session_id_sv);
+                (void)x["model"].get(requested_model_sv);
+
+                std::string message = std::string(message_sv);
+                std::string session_id = std::string(session_id_sv);
+                std::string requested_model = std::string(requested_model_sv.empty() ? "default" : requested_model_sv);
 
                 spdlog::info("Internal Chat API: model={}, session={}, msg_len={}", requested_model, session_id, message.length());
 

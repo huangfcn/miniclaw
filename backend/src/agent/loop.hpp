@@ -15,6 +15,10 @@
 #include "session.hpp"
 #include "../tools/tool.hpp"
 #include <fiber.hpp>
+#include "../config.hpp"
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 // Event types streamed back to the caller
 struct AgentEvent {
@@ -128,7 +132,7 @@ public:
                 session.add_message("user", user_message);
                 session.add_message("assistant", response);
 
-                if (session.messages.size() - session.last_consolidated > 10) {
+                if (session.messages.size() - session.last_consolidated > Config::instance().memory_consolidation_threshold()) {
                     consolidate_memory(session);
                 }
 
@@ -178,23 +182,41 @@ public:
             size_t end_json = result_str.rfind('}');
             if (start_json != std::string::npos && end_json != std::string::npos) {
                 std::string json_text = result_str.substr(start_json, end_json - start_json + 1);
-                auto res = json::parse(json_text);
+                simdjson::dom::parser parser;
+                simdjson::dom::element res;
+                auto error = parser.parse(json_text).get(res);
                 
-                if (res.contains("history_entry")) {
-                    auto& val = res["history_entry"];
-                    std::string entry = val.is_string() ? val.get<std::string>() : val.dump();
-                    context_.memory().append_history("--- CONSOLIDATED ---\n" + entry);
+                if (!error) {
+                    simdjson::dom::element history_val;
+                    if (!res["history_entry"].get(history_val)) {
+                        std::string_view entry_sv;
+                        std::string entry;
+                        if (!history_val.get(entry_sv)) {
+                            entry = std::string(entry_sv);
+                        } else {
+                            entry = simdjson::to_string(history_val);
+                        }
+                        context_.memory().append_history("--- CONSOLIDATED ---\n" + entry);
+                    }
+                    simdjson::dom::element memory_val;
+                    if (!res["memory_update"].get(memory_val)) {
+                        std::string_view update_sv;
+                        std::string update;
+                        if (!memory_val.get(update_sv)) {
+                            update = std::string(update_sv);
+                        } else {
+                            update = simdjson::to_string(memory_val);
+                        }
+                        context_.memory().write_long_term(update);
+                    }
+                    session.last_consolidated = end;
+                    spdlog::info("Memory consolidated successfully");
+                } else {
+                    spdlog::error("simdjson parse error in consolidate_memory: {} (str: {})", (int)error, json_text);
                 }
-                if (res.contains("memory_update")) {
-                    auto& val = res["memory_update"];
-                    std::string update = val.is_string() ? val.get<std::string>() : val.dump();
-                    context_.memory().write_long_term(update);
-                }
-                session.last_consolidated = end;
-                spdlog::info("Memory consolidated successfully");
             }
         } catch (const std::exception& e) {
-            spdlog::error("Memory consolidation failed: {}", e.what());
+            spdlog::error("Exception in consolidate_memory: {}", e.what());
         }
     }
 
