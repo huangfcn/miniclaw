@@ -14,11 +14,6 @@ cd "$EXTERNAL_DIR"
 
 echo "🦞 Setting up miniclaw external dependencies in $EXTERNAL_DIR..."
 
-# 1. nlohmann/json (Header only)
-echo "📦 Downloading nlohmann/json..."
-mkdir -p json/nlohmann
-curl -L https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp -o json/nlohmann/json.hpp
-
 # 2. spdlog (Header only)
 echo "📦 Downloading spdlog..."
 curl -L https://github.com/gabime/spdlog/archive/refs/tags/v1.14.1.tar.gz -o spdlog.tar.gz

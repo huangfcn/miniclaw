@@ -1,15 +1,17 @@
 #pragma once
+// WebSearchTool + WebFetchTool — with native function-calling schema
+
 #include "tool.hpp"
 #include <string>
 #include <vector>
+#include <map>
 #include <regex>
 #include <sstream>
-#include <nlohmann/json.hpp>
+#include <simdjson.h>
 #include <curl/curl.h>
 #include <fiber.hpp>
 #include "../agent/curl_manager.hpp"
 
-using json = nlohmann::json;
 
 // Helper to perform a fiber-blocking CURL request
 inline std::string curl_fetch(const std::string& url, const std::vector<std::string>& headers = {}) {
@@ -69,13 +71,24 @@ public:
     }
 
     std::string name() const override { return "web_search"; }
-    std::string description() const override { return "Search the web using Brave Search API"; }
+    std::string description() const override {
+        return "Search the web using Brave Search API. Returns titles, URLs, and snippets.";
+    }
+
+    std::string schema() const override {
+        return R"===({"type":"function","function":{"name":"web_search","description":"Search the web using Brave Search API. Returns titles, URLs, and snippets.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"The search query"},"count":{"type":"integer","description":"Number of results (default 5)"}},"required":["query"]}}})===";
+    }
+
+    std::string execute(const std::map<std::string, std::string>& args) override {
+        auto it = args.find("query");
+        if (it == args.end()) return "Error: missing 'query' argument";
+        return execute(it->second);
+    }
 
     std::string execute(const std::string& input) override {
         if (api_key_.empty()) return "Error: BRAVE_API_KEY not configured";
 
-        std::string query = input;
-        char* encoded = curl_easy_escape(nullptr, query.c_str(), query.length());
+        char* encoded = curl_easy_escape(nullptr, input.c_str(), input.length());
         std::string url = "https://api.search.brave.com/res/v1/web/search?q=" + std::string(encoded);
         curl_free(encoded);
 
@@ -83,19 +96,31 @@ public:
         if (res.find("Error:") == 0) return res;
 
         try {
-            auto j = json::parse(res);
+            simdjson::dom::parser parser;
+            simdjson::dom::element j;
+            auto error = parser.parse(res).get(j);
+            if (error) return "Error: Failed to parse search results";
+
             std::stringstream ss;
-            ss << "Search results for: " << query << "\n\n";
+            ss << "Search results for: " << input << "\n\n";
             int count = 0;
-            for (const auto& item : j["web"]["results"]) {
-                ss << ++count << ". " << item["title"].get<std::string>() << "\n"
-                   << "   URL: " << item["url"].get<std::string>() << "\n"
-                   << "   " << item["description"].get<std::string>() << "\n\n";
-                if (count >= 5) break;
+            simdjson::dom::array results;
+            if (!j["web"]["results"].get(results)) {
+                for (auto item : results) {
+                    std::string_view title_sv, url_sv, desc_sv;
+                    (void)item["title"].get(title_sv);
+                    (void)item["url"].get(url_sv);
+                    (void)item["description"].get(desc_sv);
+
+                    ss << ++count << ". " << title_sv << "\n"
+                       << "   URL: " << url_sv << "\n"
+                       << "   " << desc_sv << "\n\n";
+                    if (count >= 5) break;
+                }
             }
             return ss.str();
         } catch (...) {
-            return "Error: Failed to parse search results";
+            return "Error: Exception during parsing search results";
         }
     }
 
@@ -106,13 +131,22 @@ private:
 class WebFetchTool : public Tool {
 public:
     std::string name() const override { return "web_fetch"; }
-    std::string description() const override { return "Fetch a URL and extract text content"; }
-    std::string execute(const std::string& input) override {
-        std::string url = input;
-        std::string res = curl_fetch(url);
-        if (res.find("Error:") == 0) return res;
+    std::string description() const override { return "Fetch a URL and return its text content."; }
 
-        return "URL: " + url + "\nContent (first 2000 chars):\n\n" + strip_html(res).substr(0, 2000);
+    std::string schema() const override {
+        return R"===({"type":"function","function":{"name":"web_fetch","description":"Fetch a URL and return its text content.","parameters":{"type":"object","properties":{"url":{"type":"string","description":"The URL to fetch"}},"required":["url"]}}})===";
+    }
+
+    std::string execute(const std::map<std::string, std::string>& args) override {
+        auto it = args.find("url");
+        if (it == args.end()) return "Error: missing 'url' argument";
+        return execute(it->second);
+    }
+
+    std::string execute(const std::string& input) override {
+        std::string res = curl_fetch(input);
+        if (res.find("Error:") == 0) return res;
+        return "URL: " + input + "\nContent (first 3000 chars):\n\n" + strip_html(res).substr(0, 3000);
     }
 
 private:
@@ -121,7 +155,7 @@ private:
         html = std::regex_replace(html, std::regex("<style[\\s\\S]*?</style>", std::regex::icase), "");
         html = std::regex_replace(html, std::regex("<[^>]+>"), " ");
         html = std::regex_replace(html, std::regex("[ \\t]+"), " ");
-        html = std::regex_replace(html, std::regex("\\n{22,}"), "\n\n");
+        html = std::regex_replace(html, std::regex("\\n{2,}"), "\n\n");
         return html;
     }
 };

@@ -42,7 +42,16 @@ public:
     }
 
     // Memory
-    std::string memory_workspace() const { return get<std::string>("memory", "workspace", "."); }
+    std::string memory_workspace() const { 
+        std::filesystem::path ws = ".";
+        const char* env_ws = std::getenv("WORKSPACE_DIR");
+        if (env_ws) {
+            ws = env_ws;
+        } else if (config_["memory"] && config_["memory"]["workspace"]) {
+            ws = config_["memory"]["workspace"].as<std::string>();
+        }
+        return std::filesystem::absolute(ws).lexically_normal().string();
+    }
     int memory_consolidation_threshold() const { return get("memory", "consolidation_threshold", 100); }
 
     // Logging

@@ -3,7 +3,7 @@ server:
   threads: 4
 
 openai:
-  model: "gpt-4o-mini"
+  model: "gpt-5"
   # api_key: "sk-..." # Can be set here or via environment
 
 memory:
@@ -13,7 +13,7 @@ memory:
 logging:
   level: "debug"
   file: "backend.log"
-  enabled: false
+  enabled: true
 
 skills:
   path: "skills"

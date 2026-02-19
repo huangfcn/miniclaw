@@ -63,9 +63,11 @@ private:
                 AgentLoop sub_loop(d->self->workspace_, d->self->llm_fn_, 15);
                 
                 // Register tools
-                sub_loop.register_tool("terminal",   std::make_shared<TerminalTool>());
+                sub_loop.register_tool("exec",       std::make_shared<TerminalTool>());
                 sub_loop.register_tool("read_file",  std::make_shared<ReadFileTool>());
                 sub_loop.register_tool("write_file", std::make_shared<WriteFileTool>());
+                sub_loop.register_tool("edit_file",  std::make_shared<EditFileTool>());
+                sub_loop.register_tool("list_dir",   std::make_shared<ListDirTool>());
                 sub_loop.register_tool("web_search", std::make_shared<WebSearchTool>());
                 sub_loop.register_tool("web_fetch",  std::make_shared<WebFetchTool>());
 

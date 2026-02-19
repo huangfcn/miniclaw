@@ -76,7 +76,6 @@ add_executable(miniclaw
 
 target_include_directories(miniclaw PRIVATE 
     src
-    ${EXTERNAL_DIR}/json
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/libuv/include
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
@@ -114,6 +113,24 @@ target_include_directories(test_fiber PRIVATE
 target_link_libraries(test_fiber PRIVATE 
     pthread
     CURL::libcurl
+    simdjson
+    ${EXTERNAL_DIR}/libuv/lib/libuv.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+)
+add_executable(test_agent_loop tests/test_agent_loop.cpp)
+target_include_directories(test_agent_loop PRIVATE 
+    src
+    ${EXTERNAL_DIR}/spdlog/include
+    ${EXTERNAL_DIR}/libuv/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/src
+)
+target_link_libraries(test_agent_loop PRIVATE 
+    pthread
+    CURL::libcurl
+    yaml-cpp
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a

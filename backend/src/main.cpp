@@ -1,4 +1,3 @@
-#include <nlohmann/json.hpp>
 #include "agent.hpp"
 #include <spdlog/spdlog.h>
 #include <csignal> 
@@ -71,7 +70,7 @@ int main() {
     auto logger = std::make_shared<spdlog::logger>("multi_sink", sinks.begin(), sinks.end());
     spdlog::set_default_logger(logger);
     spdlog::set_level(log_level);
-    spdlog::flush_on(spdlog::level::info);
+    spdlog::flush_on(spdlog::level::debug);
 
     spdlog::info("Starting miniclaw Backend (C++) with uWebSockets");
 

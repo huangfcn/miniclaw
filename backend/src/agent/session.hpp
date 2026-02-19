@@ -11,21 +11,20 @@
 #include <chrono>
 #include <ctime>
 #include <mutex>
-#include <nlohmann/json.hpp>
 #include <simdjson.h>
 #include <spdlog/spdlog.h>
+#include "../json_util.hpp"
 
 #include "context.hpp" // For Message struct
 
 namespace fs = std::filesystem;
-using json = nlohmann::json;
 
 struct Session {
     std::string key;
     std::vector<Message> messages;
     std::string created_at;
     std::string updated_at;
-    json metadata;
+    std::string metadata = "{}"; // Store raw JSON string
     int last_consolidated = 0;
 
     void add_message(const std::string& role, const std::string& content) {
@@ -80,19 +79,17 @@ public:
         }
 
         // Metadata line
-        json meta = {
-            {"_type", "metadata"},
-            {"created_at", session.created_at},
-            {"updated_at", session.updated_at},
-            {"metadata", session.metadata},
-            {"last_consolidated", session.last_consolidated}
-        };
-        f << meta.dump() << "\n";
+        std::string meta_line = "{\"_type\":\"metadata\",\"created_at\":\"" + session.created_at + 
+                               "\",\"updated_at\":\"" + session.updated_at + 
+                               "\",\"metadata\":" + session.metadata + 
+                               ",\"last_consolidated\":" + std::to_string(session.last_consolidated) + "}";
+        f << meta_line << "\n";
 
         // Message lines
         for (const auto& msg : session.messages) {
-            json jmsg = {{"role", msg.role}, {"content", msg.content}};
-            f << jmsg.dump() << "\n";
+            std::string jmsg = "{\"role\":\"" + json_util::escape(msg.role) + 
+                              "\",\"content\":\"" + json_util::escape(msg.content) + "\"}";
+            f << jmsg << "\n";
         }
 
         cache_[session.key] = session;
@@ -133,12 +130,7 @@ private:
                 std::string_view type_sv;
                 if (!data["_type"].get(type_sv) && type_sv == "metadata") {
                     // It's metadata
-                    // simdjson doesn't have a direct "metadata = data['metadata']" for storing dom::element in nlohmann::json
-                    // But we can parse it into nlohmann::json if we want to keep nlohmann for storage
-                    // Or we extract fields. Actually Session::metadata is nlohmann::json.
-                    // For now, let's just parse the whole metadata object into nlohmann as it's small.
-                    std::string meta_json = simdjson::to_string(data["metadata"]);
-                    session.metadata = json::parse(meta_json);
+                    session.metadata = simdjson::to_string(data["metadata"]);
                     
                     std::string_view created_sv;
                     (void)data["created_at"].get(created_sv);

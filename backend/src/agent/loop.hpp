@@ -1,6 +1,6 @@
 #pragma once
-// AgentLoop — mirrors nanobot/nanobot/agent/loop.py
-// Core ReAct iteration: call LLM → parse tool calls → execute → repeat
+// AgentLoop — native OpenAI function-calling implementation
+// Uses tool_calls from API response instead of XML text parsing.
 
 #include <string>
 #include <vector>
@@ -8,7 +8,8 @@
 #include <functional>
 #include <memory>
 #include <sstream>
-#include <regex>
+#include <chrono>
+#include <ctime>
 #include <spdlog/spdlog.h>
 
 #include "context.hpp"
@@ -16,9 +17,22 @@
 #include "../tools/tool.hpp"
 #include <fiber.hpp>
 #include "../config.hpp"
-#include <nlohmann/json.hpp>
+#include <simdjson.h>
 
-using json = nlohmann::json;
+
+// One tool call from the LLM
+struct ToolCall {
+    std::string id;
+    std::string name;
+    std::string arguments_json;  // raw JSON string from OpenAI
+};
+
+// Structured LLM response (replaces plain std::string)
+struct LLMResponse {
+    std::string content;           // text content (may be empty if tool_calls present)
+    std::vector<ToolCall> tool_calls;
+    bool has_tool_calls() const { return !tool_calls.empty(); }
+};
 
 // Event types streamed back to the caller
 struct AgentEvent {
@@ -28,10 +42,10 @@ struct AgentEvent {
 
 using EventCallback = std::function<void(const AgentEvent&)>;
 
-// LLMCallFn is now "synchronous" from the point of view of the fiber.
-// It will suspend the fiber and resume when metadata/tokens arrive.
-using LLMCallFn = std::function<std::string(
+// LLMCallFn is "synchronous" from the fiber's perspective.
+using LLMCallFn = std::function<LLMResponse(
     const std::vector<Message>& messages,
+    const std::string& tools_json,
     EventCallback on_event
 )>;
 
@@ -47,7 +61,6 @@ public:
         , max_iterations_(max_iterations)
     {}
 
-    // Register a tool
     void register_tool(const std::string& name, std::shared_ptr<Tool> tool) {
         tools_[name] = std::move(tool);
     }
@@ -57,82 +70,162 @@ public:
         return nullptr;
     }
 
+    // Build the tools JSON array for the API request
+    std::string build_tools_json() const {
+        std::string result = "[";
+        bool first = true;
+        for (const auto& [name, tool] : tools_) {
+            if (!first) result += ",";
+            result += tool->schema();
+            first = false;
+        }
+        result += "]";
+        return result;
+    }
 
-    // Process a single user message, using the provided session for history.
+    // Parse JSON arguments from a tool call into a string->string map
+    // Handles both simple string values and nested objects (converted to string)
+    static std::map<std::string, std::string> parse_arguments(const std::string& json_str) {
+        std::map<std::string, std::string> result;
+        if (json_str.empty() || json_str == "{}") return result;
+
+        try {
+            simdjson::dom::parser parser;
+            simdjson::dom::element obj;
+            // simdjson requires padded input
+            auto padded = simdjson::padded_string(json_str);
+            auto error = parser.parse(padded).get(obj);
+            if (error) {
+                spdlog::warn("parse_arguments: JSON parse failed for: {}", json_str);
+                return result;
+            }
+            simdjson::dom::object o;
+            if (!obj.get(o)) {
+                for (auto [key, val] : o) {
+                    std::string k(key);
+                    std::string_view sv;
+                    if (!val.get(sv)) {
+                        result[k] = std::string(sv);
+                    } else {
+                        // Non-string value: convert to string
+                        result[k] = simdjson::to_string(val);
+                    }
+                }
+            }
+        } catch (...) {
+            spdlog::warn("parse_arguments: exception parsing: {}", json_str);
+        }
+        return result;
+    }
+
+    // Build the "assistant" message with tool_calls for the API
+    static Message make_assistant_tool_call_message(const std::string& content, const std::vector<ToolCall>& calls) {
+        Message msg;
+        msg.role = "assistant";
+        msg.content = content;
+        // Build tool_calls JSON
+        std::string tc_json = "[";
+        for (size_t i = 0; i < calls.size(); ++i) {
+            if (i > 0) tc_json += ",";
+            tc_json += "{\"id\":\"" + json_escape(calls[i].id) + "\","
+                       "\"type\":\"function\","
+                       "\"function\":{\"name\":\"" + json_escape(calls[i].name) + "\","
+                       "\"arguments\":\"" + json_escape(calls[i].arguments_json) + "\"}}";
+        }
+        tc_json += "]";
+        msg.tool_calls_json = tc_json;
+        return msg;
+    }
+
+    // Build a "tool" role message (result of a tool call)
+    static Message make_tool_result_message(const std::string& tool_call_id, const std::string& tool_name, const std::string& result) {
+        Message msg;
+        msg.role = "tool";
+        msg.tool_call_id = tool_call_id;
+        msg.name = tool_name;
+        msg.content = result;
+        return msg;
+    }
+
     void process(
         const std::string& user_message,
         Session& session,
-        EventCallback on_event
+        EventCallback on_event,
+        const std::string& channel = "",
+        const std::string& chat_id = ""
     ) {
-        // 1. Append user message to history file (simple log)
         context_.memory().append_history(
             "[" + current_timestamp() + "] USER: " + user_message
         );
 
-        // 2. Build message list from session history + current message
-        // history passed to context_.build_messages should be the recent window
-        int memory_window = 20; // Default window
+        int memory_window = 20;
         std::vector<Message> history = session.messages;
         if (history.size() > memory_window) {
             history.erase(history.begin(), history.end() - memory_window);
         }
 
-        std::vector<Message> messages = context_.build_messages(history, user_message);
+        std::vector<Message> messages = context_.build_messages(history, user_message, channel, chat_id);
 
+        const std::string tools_json = build_tools_json();
         int iteration = 0;
-        bool tool_used = false;
 
         while (iteration < max_iterations_) {
             ++iteration;
 
-            std::string response = llm_fn_(messages, on_event);
+            LLMResponse response = llm_fn_(messages, tools_json, on_event);
+            spdlog::debug("AgentLoop iteration {}: has_tool_calls={} content_len={}",
+                iteration, response.has_tool_calls(), response.content.size());
 
-            if (response.empty() || response.rfind("Error", 0) == 0) {
-                on_event({"error", response.empty() ? "LLM returned empty response" : response});
+            if (response.content.find("Error") == 0 && !response.has_tool_calls()) {
+                on_event({"error", response.content});
                 break;
             }
 
-            std::regex tool_re(R"DELIM(<tool name="([^"]+)">([\s\S]*?)</tool>)DELIM");
-            std::smatch match;
-
-            if (std::regex_search(response, match, tool_re)) {
-                tool_used = true;
-                std::string tool_name  = match[1].str();
-                std::string tool_input = trim(match[2].str());
-
-                on_event({"tool_start", tool_name + ": " + tool_input});
-                
-                context_.memory().append_history(
-                    "[" + current_timestamp() + "] TOOL " + tool_name + ": " + tool_input
-                );
-
-                std::string output;
-                if (tools_.count(tool_name)) {
-                    output = tools_.at(tool_name)->execute(tool_input);
-                } else {
-                    output = "Error: unknown tool '" + tool_name + "'";
+            if (response.has_tool_calls()) {
+                // Stream any thinking content to the user
+                if (!response.content.empty()) {
+                    on_event({"token", response.content});
                 }
 
-                on_event({"tool_end", output});
+                // Append the assistant message with tool_calls
+                messages.push_back(make_assistant_tool_call_message(response.content, response.tool_calls));
 
-                context_.memory().append_history(
-                    "[" + current_timestamp() + "] TOOL_OUTPUT: " + output.substr(0, 500)
-                );
+                // Execute each tool call
+                for (const auto& tc : response.tool_calls) {
+                    spdlog::info("Tool call: {}({})", tc.name, tc.arguments_json.substr(0, 200));
+                    on_event({"tool_start", tc.name + ": " + tc.arguments_json});
 
-                messages.push_back({"assistant", response});
-                messages.push_back({"user", "Tool Output:\n" + output + "\n\nReflect on the result and decide next steps."});
+                    context_.memory().append_history(
+                        "[" + current_timestamp() + "] TOOL " + tc.name + ": " + tc.arguments_json
+                    );
+
+                    std::string output;
+                    if (tools_.count(tc.name)) {
+                        auto args = parse_arguments(tc.arguments_json);
+                        output = tools_.at(tc.name)->execute(args);
+                    } else {
+                        output = "Error: unknown tool '" + tc.name + "'";
+                    }
+
+                    on_event({"tool_end", output});
+                    context_.memory().append_history(
+                        "[" + current_timestamp() + "] TOOL_OUTPUT: " + output.substr(0, 500)
+                    );
+
+                    messages.push_back(make_tool_result_message(tc.id, tc.name, output));
+                }
 
             } else {
                 // Final answer
                 context_.memory().append_history(
-                    "[" + current_timestamp() + "] ASSISTANT: " + response
+                    "[" + current_timestamp() + "] ASSISTANT: " + response.content
                 );
-                
-                // Update session
-                session.add_message("user", user_message);
-                session.add_message("assistant", response);
 
-                if (session.messages.size() - session.last_consolidated > Config::instance().memory_consolidation_threshold()) {
+                session.add_message("user", user_message);
+                session.add_message("assistant", response.content);
+
+                if (session.messages.size() - session.last_consolidated >
+                        Config::instance().memory_consolidation_threshold()) {
                     consolidate_memory(session);
                 }
 
@@ -146,11 +239,9 @@ public:
         }
     }
 
-    // Port of nanobot's _consolidate_memory
     void consolidate_memory(Session& session) {
         spdlog::info("Consolidating memory for session: {}", session.key);
-        
-        // 1. Prepare conversation slice for the LLM
+
         int start = session.last_consolidated;
         int end = session.messages.size();
         if (end - start < 2) return;
@@ -169,50 +260,43 @@ public:
             "## Conversation\n" + conv.str();
 
         std::vector<Message> msgs = {
-            {"system", "You are a memory consolidation agent. Respond ONLY with valid JSON."},
-            {"user", prompt}
+            {"system", "You are a memory consolidation agent. Respond ONLY with valid JSON.", "", "", ""},
+            {"user", prompt, "", "", ""}
         };
 
-        // Call LLM synchronously for consolidation (it will block the fiber)
-        std::string result_str = llm_fn_(msgs, [](const AgentEvent&){});
-        
+        LLMResponse result = llm_fn_(msgs, "[]", [](const AgentEvent&){});
+
         try {
-            // Find JSON in response
-            size_t start_json = result_str.find('{');
-            size_t end_json = result_str.rfind('}');
+            size_t start_json = result.content.find('{');
+            size_t end_json = result.content.rfind('}');
             if (start_json != std::string::npos && end_json != std::string::npos) {
-                std::string json_text = result_str.substr(start_json, end_json - start_json + 1);
+                std::string json_text = result.content.substr(start_json, end_json - start_json + 1);
                 simdjson::dom::parser parser;
                 simdjson::dom::element res;
-                auto error = parser.parse(json_text).get(res);
-                
+                auto padded = simdjson::padded_string(json_text);
+                auto error = parser.parse(padded).get(res);
+
                 if (!error) {
                     simdjson::dom::element history_val;
                     if (!res["history_entry"].get(history_val)) {
                         std::string_view entry_sv;
                         std::string entry;
-                        if (!history_val.get(entry_sv)) {
-                            entry = std::string(entry_sv);
-                        } else {
-                            entry = simdjson::to_string(history_val);
-                        }
+                        if (!history_val.get(entry_sv)) entry = std::string(entry_sv);
+                        else entry = simdjson::to_string(history_val);
                         context_.memory().append_history("--- CONSOLIDATED ---\n" + entry);
                     }
                     simdjson::dom::element memory_val;
                     if (!res["memory_update"].get(memory_val)) {
                         std::string_view update_sv;
                         std::string update;
-                        if (!memory_val.get(update_sv)) {
-                            update = std::string(update_sv);
-                        } else {
-                            update = simdjson::to_string(memory_val);
-                        }
+                        if (!memory_val.get(update_sv)) update = std::string(update_sv);
+                        else update = simdjson::to_string(memory_val);
                         context_.memory().write_long_term(update);
                     }
                     session.last_consolidated = end;
                     spdlog::info("Memory consolidated successfully");
                 } else {
-                    spdlog::error("simdjson parse error in consolidate_memory: {} (str: {})", (int)error, json_text);
+                    spdlog::error("simdjson parse error in consolidate_memory");
                 }
             }
         } catch (const std::exception& e) {
@@ -228,11 +312,17 @@ private:
     int max_iterations_;
     std::map<std::string, std::shared_ptr<Tool>> tools_;
 
-    static std::string trim(const std::string& s) {
-        size_t a = s.find_first_not_of(" \t\r\n");
-        if (a == std::string::npos) return "";
-        size_t b = s.find_last_not_of(" \t\r\n");
-        return s.substr(a, b - a + 1);
+    static std::string json_escape(const std::string& s) {
+        std::string out;
+        for (char c : s) {
+            if (c == '"') out += "\\\"";
+            else if (c == '\\') out += "\\\\";
+            else if (c == '\n') out += "\\n";
+            else if (c == '\r') out += "\\r";
+            else if (c == '\t') out += "\\t";
+            else out += c;
+        }
+        return out;
     }
 
     static std::string current_timestamp() {
