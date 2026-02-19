@@ -10,6 +10,7 @@
 #include <sstream>
 #include <chrono>
 #include <ctime>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
@@ -57,6 +58,7 @@ public:
     }
 
     Session get_or_create(const std::string& key) {
+        std::lock_guard<std::recursive_mutex> lock(mtx_);
         if (cache_.count(key)) {
             return cache_[key];
         }
@@ -68,6 +70,7 @@ public:
     }
 
     void save(const Session& session) {
+        std::lock_guard<std::recursive_mutex> lock(mtx_);
         fs::path path = get_session_path(session.key);
         std::ofstream f(path);
         if (!f.is_open()) {
@@ -98,6 +101,7 @@ private:
     fs::path workspace_;
     fs::path sessions_dir_;
     std::map<std::string, Session> cache_;
+    std::recursive_mutex mtx_;
 
     fs::path get_session_path(const std::string& key) {
         std::string safe_key = key;

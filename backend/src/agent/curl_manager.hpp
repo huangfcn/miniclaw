@@ -14,7 +14,7 @@ struct CurlContext {
 class CurlMultiManager {
 public:
     static CurlMultiManager& instance() {
-        static CurlMultiManager inst;
+        static thread_local CurlMultiManager inst;
         return inst;
     }
 

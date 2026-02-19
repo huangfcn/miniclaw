@@ -1,5 +1,6 @@
 #include <uv.h>
 #include <fiber.hpp>
+#include "agent.hpp"
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include <curl/curl.h>
@@ -9,44 +10,27 @@
 #include <queue>
 #include <condition_variable>
 
+#include "agent/subagent.hpp"
+#include "agent/fiber_pool.hpp"
+#include "agent/curl_manager.hpp"
 #include "tools/terminal.hpp"
 #include "tools/file.hpp"
 #include "tools/web.hpp"
 #include "tools/spawn.hpp"
 
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include "agent/curl_manager.hpp"
-
-static std::queue<std::function<void()>> g_spawn_queue;
-static std::mutex g_spawn_mtx;
-static uv_async_t g_spawn_async;
+// Remove old global spawn system
+// static std::queue<std::function<void()>> g_spawn_queue;
+// static std::mutex g_spawn_mtx;
+// static uv_async_t g_spawn_async;
 
 void init_spawn_system() {
-    auto* loop = uv_default_loop();
     curl_global_init(CURL_GLOBAL_ALL);
-    CurlMultiManager::instance().init(loop);
-    spdlog::info("Spawn system initialized with Async Curl manager");
-
-    uv_async_init(loop, &g_spawn_async, [](uv_async_t*) {
-        std::unique_lock<std::mutex> lock(g_spawn_mtx);
-        while (!g_spawn_queue.empty()) {
-            auto task = std::move(g_spawn_queue.front());
-            g_spawn_queue.pop();
-            lock.unlock();
-            task();
-            lock.lock();
-        }
-    });
+    // CurlMultiManager is now initialized per FiberNode thread
+    spdlog::info("Spawn system (FiberPool) ready");
 }
 
 void spawn_in_fiber(std::function<void()> task) {
-    {
-        std::lock_guard<std::mutex> lock(g_spawn_mtx);
-        g_spawn_queue.push(std::move(task));
-    }
-    uv_async_send(&g_spawn_async);
+    FiberPool::instance().spawn(std::move(task));
 }
 
 Agent::~Agent() = default;
@@ -79,51 +63,41 @@ Agent::Agent() {
 
     spdlog::info("Agent initialized: model={} workspace={}", model_, workspace_);
 }
+
 void Agent::run(
     const std::string& user_message,
     const std::string& session_id,
+    const std::string& api_key,
     AgentEventCallback on_event
 ) {
     auto session = sessions_->get_or_create(session_id);
     
-    // Update tools that need session context
-    auto spawn_tool = std::dynamic_pointer_cast<SpawnTool>(loop_->get_tool("spawn"));
-    if (spawn_tool) spawn_tool->set_context(session_id);
+    // Set session_id and api_key in Fiber Local Storage
+    // Index 0: session_id, Index 1: api_key
+    auto* fiber_tcb = fiber_ident();
+    if (fiber_tcb) {
+        fiber_set_localdata(fiber_tcb, 0, reinterpret_cast<uint64_t>(new std::string(session_id)));
+        fiber_set_localdata(fiber_tcb, 1, reinterpret_cast<uint64_t>(new std::string(api_key.empty() ? api_key_ : api_key)));
+    }
 
-    struct RunData {
-        Agent* self;
-        std::string msg;
-        Session* session;
-        AgentEventCallback on_event;
-        std::mutex mtx;
-        std::condition_variable cv;
-        bool done = false;
-    };
+    try {
+        loop_->process(user_message, session, on_event);
+    } catch (const std::exception& e) {
+        spdlog::error("Error in Agent::run: {}", e.what());
+        on_event({"error", e.what()});
+    }
 
-    auto* data = new RunData{this, user_message, &session, std::move(on_event)};
+    // Cleanup Fiber Local Storage
+    if (fiber_tcb) {
+        auto* s0 = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 0));
+        auto* s1 = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 1));
+        delete s0;
+        delete s1;
+        fiber_set_localdata(fiber_tcb, 0, 0);
+        fiber_set_localdata(fiber_tcb, 1, 0);
+    }
 
-    spawn_in_fiber([data]() {
-        fiber_create([](void* arg) -> void* {
-            auto* d = (RunData*)arg;
-            try {
-                d->self->loop_->process(d->msg, *d->session, d->on_event);
-            } catch (const std::exception& e) {
-                d->on_event({"error", e.what()});
-            }
-            {
-                std::lock_guard<std::mutex> lock(d->mtx);
-                d->done = true;
-            }
-            d->cv.notify_one();
-            return nullptr;
-        }, data, NULL, 512 * 1024);
-    });
-
-    // Wait for the fiber to complete in the Crow thread
-    std::unique_lock<std::mutex> lock(data->mtx);
-    data->cv.wait(lock, [&]{ return data->done; });
-    delete data;
-
+    // Save updated session state
     sessions_->save(session);
 }
 
@@ -162,16 +136,27 @@ std::string Agent::call_llm(
     for (const auto& m : messages) {
         j_messages.push_back({{"role", m.role}, {"content", m.content}});
     }
+
     json payload = {
         {"model",    model_},
         {"messages", j_messages},
         {"stream",   true}
     };
     std::string payload_str = payload.dump();
+    // spdlog::info("---- send to LLM -----\n{}", payload_str); // Log LLM Input
 
     // Headers
     data->headers = curl_slist_append(data->headers, "Content-Type: application/json");
-    std::string auth = "Authorization: Bearer " + api_key_;
+    
+    // Get API key from Fiber Local Storage (Index 1) or fallback to internal
+    std::string effective_key = api_key_;
+    auto* fiber_tcb = fiber_ident();
+    if (fiber_tcb) {
+        auto* key_ptr = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 1));
+        if (key_ptr && !key_ptr->empty()) effective_key = *key_ptr;
+    }
+
+    std::string auth = "Authorization: Bearer " + effective_key;
     data->headers = curl_slist_append(data->headers, auth.c_str());
 
     // URL
@@ -179,7 +164,14 @@ std::string Agent::call_llm(
     if (url.find("http://") != 0 && url.find("https://") != 0) {
         url = "https://" + url;
     }
-    url += "/v1/chat/completions";
+    // Remove trailing slash if present
+    while (!url.empty() && url.back() == '/') url.pop_back();
+    // Append /v1 only if not already present
+    if (url.size() < 3 || url.substr(url.size() - 3) != "/v1") {
+        url += "/v1";
+    }
+    url += "/chat/completions";
+    spdlog::info("LLM URL: {}", url);
 
     curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
     curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS, payload_str.c_str());
@@ -213,6 +205,17 @@ std::string Agent::call_llm(
                 } catch (const std::exception& e) {
                     spdlog::warn("JSON parse error in curl write_cb: {} (str: {})", e.what(), json_str);
                 }
+            } else if (!line.empty()) {
+                spdlog::debug("Unexpected LLM response line: {}", line);
+                if (d->result.empty() && line.find('{') != std::string::npos) {
+                    // Likely an error JSON
+                    try {
+                        auto j = json::parse(line);
+                        if (j.contains("error")) {
+                            d->result = "Error: " + j["error"].dump();
+                        }
+                    } catch (...) {}
+                }
             }
         }
         return total;
@@ -232,12 +235,28 @@ std::string Agent::call_llm(
     fiber_suspend(0);
     spdlog::debug("Async LLM call resumed for fiber {}", (void*)data->fiber);
 
+    // Process leftover buffer (e.g. error JSON without newline)
+    if (!data->buffer.empty()) {
+        std::string line = data->buffer;
+        if (line.rfind("data: ", 0) == 0) {
+            // ... (optional: handle data: [DONE] if missing newline)
+        } else {
+            try {
+                auto j = json::parse(line);
+                if (j.contains("error")) {
+                    data->result = "Error: " + j["error"].dump();
+                }
+            } catch (...) {}
+        }
+    }
+
     // Cleanup
     CurlMultiManager::instance().remove_handle(easy);
     curl_slist_free_all(data->headers);
     curl_easy_cleanup(easy);
 
     std::string final_res = data->result;
+    // spdlog::info("----- receive from LLM -----\n{}", final_res); // Log LLM Output
     delete data;
     return final_res;
 }

@@ -1,3 +1,13 @@
+# backend 
 backend/backend.log
 backend/external/
 backend/build
+
+# test output
+backend/*test*.txt
+
+# backend.rs
+backend.rs/target/
+
+frontend/
+.webui*

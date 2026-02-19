@@ -25,6 +25,7 @@ public:
     void run(
         const std::string& user_message,
         const std::string& session_id,
+        const std::string& api_key,
         AgentEventCallback on_event
     );
 

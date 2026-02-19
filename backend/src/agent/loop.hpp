@@ -181,10 +181,14 @@ public:
                 auto res = json::parse(json_text);
                 
                 if (res.contains("history_entry")) {
-                    context_.memory().append_history("--- CONSOLIDATED ---\n" + res["history_entry"].get<std::string>());
+                    auto& val = res["history_entry"];
+                    std::string entry = val.is_string() ? val.get<std::string>() : val.dump();
+                    context_.memory().append_history("--- CONSOLIDATED ---\n" + entry);
                 }
                 if (res.contains("memory_update")) {
-                    context_.memory().write_long_term(res["memory_update"].get<std::string>());
+                    auto& val = res["memory_update"];
+                    std::string update = val.is_string() ? val.get<std::string>() : val.dump();
+                    context_.memory().write_long_term(update);
                 }
                 session.last_consolidated = end;
                 spdlog::info("Memory consolidated successfully");

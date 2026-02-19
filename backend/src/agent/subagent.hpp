@@ -52,6 +52,11 @@ private:
 
         fiber_create([](void* arg) -> void* {
             auto* d = (SubData*)arg;
+            
+            // Set session_id in Fiber Local Storage (Index 0)
+            auto* fiber = fib::Fiber::self();
+            fiber->setLocalData(0, reinterpret_cast<uint64_t>(&d->session_id));
+
             try {
                 spdlog::debug("Subagent [{}] loop start", d->task_id);
                 // Setup a local loop for the subagent
