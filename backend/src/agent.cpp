@@ -278,6 +278,7 @@ LLMResponse Agent::call_llm(
             std::string_view content_sv;
             if (!delta["content"].get(content_sv) && !content_sv.empty()) {
                 std::string tok(content_sv);
+                // spdlog::debug("Emitting token: '{}'", tok);
                 d->on_event({"token", tok});
                 d->text_content += tok;
             }

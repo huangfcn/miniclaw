@@ -771,3 +771,24 @@ ASSISTANT: I will fetch the live current weather for London using wttr.in.I will
 
 [2026-02-19 10:22:53] ASSISTANT: London: 🌦 +6°C 87% ↘11 km/h
 
+[2026-02-19 10:36:07] USER: what is the weather of New York now?
+
+[2026-02-19 10:36:15] TOOL exec: {"command":"curl -s \"https://wttr.in/New+York?format=%l:+%c+%t+%h+%w\""}
+
+[2026-02-19 10:36:42] TOOL_OUTPUT: (no output)
+
+[2026-02-19 10:37:32] USER: what is the weather of New York now?
+
+[2026-02-19 10:37:38] TOOL exec: {"command":"curl -s \"https://wttr.in/New+York?format=%l:+%c+%t+%h+%w\""}
+
+[2026-02-19 10:38:41] TOOL_OUTPUT: (no output)
+
+[2026-02-19 10:38:53] TOOL web_fetch: {"url":"https://wttr.in/New+York?format=%l:+%c+%t+%h+%w"}
+
+[2026-02-19 10:38:57] TOOL_OUTPUT: URL: https://wttr.in/New+York?format=%l:+%c+%t+%h+%w
+Content (first 3000 chars):
+
+New+York: ☁️ +37°F 61% ←6mph
+
+[2026-02-19 10:39:05] ASSISTANT: New York: ☁️ +37°F 61% ←6 mph
+
