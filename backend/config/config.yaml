@@ -15,14 +15,14 @@ memory:
   time: "13:00" # trigger L2 -> L3 distillation after 1:00 PM
 
   # LLM for memory summarization
-  provider: "openai" # provider for memory LLM
-  model: "gpt-4o-mini" # model used for memory summarization
-  endpoint: "https://api.openai.com/v1/chat/completions"
+  provider: "local" # provider for memory LLM
+  model: "qwen3:8b" # model used for memory summarization
+  endpoint: "http://localhost:11434/v1/chat/completions"
 
 embedding:
   provider: "local" # Using local OpenAI-compatible service
-  model: "qwen3-embedding"
-  endpoint: "http://localhost:8080/v1/embeddings"
+  model: "qwen3-embedding:8b"
+  endpoint: "http://localhost:11434/v1/embeddings"
   dimension: 1024 # Truncating 4096-dim Qwen3 to 1024 via MRL
 
 logging:

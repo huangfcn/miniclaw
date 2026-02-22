@@ -8,6 +8,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
+
+# Define directories early for all targets
+set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
+set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
+set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
+set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
+set(FIBER_DIR "${THIRDPARTY_DIR}/fiber")
+set(LIBUV_DIR "${THIRDPARTY_DIR}/libuv")
+
 if(APPLE)
     set(BOOST_INC "/opt/homebrew/opt/boost/include")
     set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
@@ -52,9 +61,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(simdjson)
 
-# Define include directories for external libraries
-set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
-set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
 
 # Define uSockets as a static library
 add_library(uSockets STATIC 
@@ -76,11 +82,6 @@ target_include_directories(uSockets PRIVATE
     ${LIBUV_DIR}/include
 )
 
-# Third-party libraries (prebuilt)
-set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
-set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
-set(FIBER_DIR "${THIRDPARTY_DIR}/fiber")
-set(LIBUV_DIR "${THIRDPARTY_DIR}/libuv")
 
 set_target_properties(uSockets PROPERTIES LINKER_LANGUAGE C)
 
@@ -131,8 +132,8 @@ target_link_libraries(miniclaw PRIVATE
 
 if(APPLE)
     target_link_libraries(miniclaw PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.dylib
-        ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
@@ -205,8 +206,8 @@ target_link_libraries(test_agent_loop PRIVATE
 
 if(APPLE)
     target_link_libraries(test_agent_loop PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.dylib
-        ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
@@ -246,8 +247,8 @@ target_link_libraries(test_memory_index PRIVATE
 
 if(APPLE)
     target_link_libraries(test_memory_index PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.dylib
-        ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
@@ -290,8 +291,8 @@ target_link_libraries(test_distillation PRIVATE
 
 if(APPLE)
     target_link_libraries(test_distillation PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.dylib
-        ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
@@ -308,4 +309,43 @@ elseif(WIN32)
         gomp
     )
     target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
+endif()
+
+add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp)
+target_include_directories(test_distillation_real PRIVATE 
+    src
+    ${EXTERNAL_DIR}/spdlog/include
+    ${EXTERNAL_DIR}/libuv/include
+    ${FIBER_DIR}/include
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/src
+)
+target_link_libraries(test_distillation_real PRIVATE 
+    uSockets
+    OpenSSL::SSL 
+    OpenSSL::Crypto
+    CURL::libcurl
+    ZLIB::ZLIB
+    z
+    pthread
+    yaml-cpp
+    simdjson
+    ${LIBUV_DIR}/lib/libuv.a
+    ${FIBER_DIR}/lib/libfiber.a
+    ${FAISS_DIR}/lib/libfaiss.a
+)
+
+if(APPLE)
+    target_link_libraries(test_distillation_real PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        "-framework Accelerate"
+        "/opt/homebrew/opt/libomp/lib/libomp.dylib"
+    )
+    target_link_libraries(test_distillation_real PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 endif()

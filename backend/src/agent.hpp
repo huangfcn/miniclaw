@@ -29,6 +29,9 @@ public:
         const std::string& channel = ""
     );
 
+    // Access to internal components for testing
+    AgentLoop& loop() { return *loop_; }
+
 private:
     std::unique_ptr<AgentLoop> loop_;
     std::unique_ptr<SessionManager> sessions_;

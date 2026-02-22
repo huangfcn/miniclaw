@@ -27,7 +27,21 @@ void init_spawn_system() {
 }
 
 void spawn_in_fiber(std::function<void()> task) {
-    FiberPool::instance().spawn(std::move(task));
+    FiberPool::instance().spawn([task = std::move(task)]() {
+        auto* t_ptr = new std::function<void()>(std::move(task));
+        fiber_create([](void* arg) -> void* {
+            auto* t = (std::function<void()>*)arg;
+            try {
+                (*t)();
+            } catch (const std::exception& e) {
+                spdlog::error("Exception in fiber: {}", e.what());
+            } catch (...) {
+                spdlog::error("Unknown exception in fiber");
+            }
+            delete t;
+            return nullptr;
+        }, t_ptr, NULL, 1024 * 1024);
+    });
 }
 
 Agent::~Agent() = default;
