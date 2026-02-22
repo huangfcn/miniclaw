@@ -1,3 +1,6 @@
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 #include "memory_index.hpp"
 #include <faiss/IndexFlat.h>
 #include <faiss/index_io.h>
@@ -285,6 +288,9 @@ private:
 
 MemoryIndex::MemoryIndex(const std::string& index_path, int dimension)
     : impl_(std::make_unique<Impl>(index_path, dimension)) {}
+
+MemoryIndex::MemoryIndex(const fs::path& index_path, int dimension)
+    : impl_(std::make_unique<Impl>(index_path.string(), dimension)) {}
 
 MemoryIndex::~MemoryIndex() = default;
 

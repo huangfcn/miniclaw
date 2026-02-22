@@ -40,7 +40,7 @@
 #endif
 
 // bulding shared?
-#define LPP_SHARED_LIB
+#undef LPP_SHARED_LIB
 
 
 // setup library binds

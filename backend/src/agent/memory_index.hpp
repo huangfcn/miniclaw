@@ -4,6 +4,9 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 struct SearchResult {
     std::string id;
@@ -18,6 +21,7 @@ struct SearchResult {
 class MemoryIndex {
 public:
     explicit MemoryIndex(const std::string& index_path, int dimension = 1536);
+    explicit MemoryIndex(const fs::path& index_path, int dimension = 1536);
     ~MemoryIndex();
 
     void add_document(

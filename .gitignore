@@ -5,8 +5,10 @@ backend/build
 
 # third-party
 backend/third-party/faiss/
-backend/third-party/lucene++/
+backend/third-party/LucenePlusPlus/
 backend/third-party/fiber/
+backend/third-party/libuv/
+backend/third-party/fiber-src.tar.gz
 
 # test output
 backend/*test*.txt
