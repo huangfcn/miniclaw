@@ -1,0 +1,4 @@
+The current session context is nearly full and will soon be compacted. It is critical that you capture all vital memories, decisions, and project state into a durable daily log entry (L2 memory) now before they are truncated.
+
+## Conversation Segment
+{{CONVERSATION}}

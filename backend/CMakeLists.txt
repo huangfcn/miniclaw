@@ -8,6 +8,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
+set(BOOST_INC "/opt/homebrew/opt/boost/include")
+set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
+include_directories(${BOOST_INC})
+link_directories(${BOOST_LIB})
 
 include(FetchContent)
 
@@ -72,6 +76,7 @@ add_executable(miniclaw
     src/main.cpp 
     src/agent.cpp
     src/agent/fiber_pool.cpp
+    src/agent/memory_index.cpp
 )
 
 target_include_directories(miniclaw PRIVATE 
@@ -91,6 +96,16 @@ target_compile_definitions(miniclaw PRIVATE
     __1_N_MODEL__
 )
 
+# Third-party libraries (prebuilt)
+set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
+set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
+set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
+
+target_include_directories(miniclaw PRIVATE 
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
+)
+
 target_link_libraries(miniclaw PRIVATE 
     uSockets
     OpenSSL::SSL 
@@ -103,6 +118,16 @@ target_link_libraries(miniclaw PRIVATE
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FAISS_DIR}/lib/libfaiss.a
+    ${LUCENE_DIR}/lib/liblucene++.dylib
+    ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+    boost_filesystem
+    boost_iostreams
+    boost_thread
+    boost_date_time
+    boost_regex
+    "-framework Accelerate"
+    "/opt/homebrew/opt/libomp/lib/libomp.dylib"
 )
 
 add_executable(test_fiber tests/test_fiber.cpp)
@@ -117,12 +142,15 @@ target_link_libraries(test_fiber PRIVATE
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
 )
-add_executable(test_agent_loop tests/test_agent_loop.cpp)
+
+add_executable(test_agent_loop tests/test_agent_loop.cpp src/agent/memory_index.cpp)
 target_include_directories(test_agent_loop PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/libuv/include
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
@@ -134,4 +162,73 @@ target_link_libraries(test_agent_loop PRIVATE
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FAISS_DIR}/lib/libfaiss.a
+    ${LUCENE_DIR}/lib/liblucene++.dylib
+    ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+    boost_filesystem
+    boost_iostreams
+    boost_thread
+    boost_date_time
+    boost_regex
+    "-framework Accelerate"
+    "/opt/homebrew/opt/libomp/lib/libomp.dylib"
+)
+
+add_executable(test_memory_index tests/test_memory_index.cpp src/agent/memory_index.cpp)
+target_include_directories(test_memory_index PRIVATE 
+    src
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
+    ${EXTERNAL_DIR}/spdlog/include
+    ${EXTERNAL_DIR}/libuv/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+)
+target_link_libraries(test_memory_index PRIVATE 
+    pthread
+    CURL::libcurl
+    yaml-cpp
+    simdjson
+    ${EXTERNAL_DIR}/libuv/lib/libuv.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FAISS_DIR}/lib/libfaiss.a
+    ${LUCENE_DIR}/lib/liblucene++.dylib
+    ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+    boost_filesystem
+    boost_iostreams
+    boost_thread
+    boost_date_time
+    boost_regex
+    "-framework Accelerate"
+    "/opt/homebrew/opt/libomp/lib/libomp.dylib"
+)
+
+add_executable(test_distillation tests/test_distillation.cpp src/agent/memory_index.cpp)
+target_include_directories(test_distillation PRIVATE 
+    src
+    ${EXTERNAL_DIR}/spdlog/include
+    ${EXTERNAL_DIR}/libuv/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/src
+)
+target_link_libraries(test_distillation PRIVATE 
+    pthread
+    CURL::libcurl
+    yaml-cpp
+    simdjson
+    ${EXTERNAL_DIR}/libuv/lib/libuv.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FAISS_DIR}/lib/libfaiss.a
+    ${LUCENE_DIR}/lib/liblucene++.dylib
+    ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
+    boost_filesystem
+    boost_iostreams
+    boost_thread
+    boost_date_time
+    boost_regex
+    "-framework Accelerate"
+    "/opt/homebrew/opt/libomp/lib/libomp.dylib"
 )

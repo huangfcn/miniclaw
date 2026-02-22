@@ -1,0 +1,4 @@
+Summarize the following conversation segment into a durable daily log entry (L2 memory). Focus on key decisions, technical findings, and project status.
+
+## Conversation Segment
+{{CONVERSATION}}

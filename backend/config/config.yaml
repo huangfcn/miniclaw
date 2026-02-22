@@ -1,0 +1,34 @@
+server:
+  port: 9000
+  threads: 4
+
+conversation:
+  provider: "openai"
+  model: "gpt-5"
+  endpoint: "https://api.openai.com/v1/chat/completions"
+  # api_key: "sk-..." # Can be set here or via environment
+
+memory:
+  workspace: "."
+  l1_to_l2_threshold: 300 # messages before L1 -> L2 distillation
+  compaction_threshold: 0.8 # trigger proactive flush at 80% context
+  time: "13:00" # trigger L2 -> L3 distillation after 1:00 PM
+
+  # LLM for memory summarization
+  provider: "openai" # provider for memory LLM
+  model: "gpt-4o-mini" # model used for memory summarization
+  endpoint: "https://api.openai.com/v1/chat/completions"
+
+embedding:
+  provider: "local" # Using local OpenAI-compatible service
+  model: "qwen3-embedding"
+  endpoint: "http://localhost:8080/v1/embeddings"
+  dimension: 1024 # Truncating 4096-dim Qwen3 to 1024 via MRL
+
+logging:
+  level: "debug"
+  file: "backend.log"
+  enabled: true
+
+skills:
+  path: "skills"

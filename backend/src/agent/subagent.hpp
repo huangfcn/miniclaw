@@ -18,8 +18,8 @@
 
 class SubagentManager {
 public:
-    SubagentManager(const std::string& workspace, LLMCallFn llm_fn)
-        : workspace_(workspace), llm_fn_(llm_fn) {}
+    SubagentManager(const std::string& workspace, LLMCallFn llm_fn, EmbeddingFn embed_fn)
+        : workspace_(workspace), llm_fn_(llm_fn), embed_fn_(embed_fn) {}
 
     std::string spawn(const std::string& task, const std::string& label, const std::string& session_id) {
         std::string task_id = "sub_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()).substr(10);
@@ -36,6 +36,7 @@ public:
 private:
     std::string workspace_;
     LLMCallFn llm_fn_;
+    EmbeddingFn embed_fn_;
 
     struct SubData {
         SubagentManager* self;
@@ -60,7 +61,7 @@ private:
             try {
                 spdlog::debug("Subagent [{}] loop start", d->task_id);
                 // Setup a local loop for the subagent
-                AgentLoop sub_loop(d->self->workspace_, d->self->llm_fn_, 15);
+                AgentLoop sub_loop(d->self->workspace_, d->self->llm_fn_, d->self->embed_fn_, 15);
                 
                 // Register tools
                 sub_loop.register_tool("exec",       std::make_shared<TerminalTool>());

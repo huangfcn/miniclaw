@@ -143,22 +143,20 @@ void FiberNode::thread_func() {
                     uWS::HttpResponse<false>* res;
                     std::string message;
                     std::string session_id;
-                    std::string api_key;
                     std::shared_ptr<bool> aborted;
                     std::string chat_id;
                 };
 
                 auto ctx = new RequestContext{
-                    this, res, std::move(message), std::move(session_id), std::move(auth_header), aborted,
+                    this, res, std::move(message), std::move(session_id), aborted,
                     "chatcmpl-" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count())
                 };
 
                 fiber_create([](void* arg) -> void* {
                     std::unique_ptr<RequestContext> ctx((RequestContext*)arg);
                     
-                    ctx->node->agent_->run(ctx->message, ctx->session_id, ctx->api_key, [res = ctx->res, aborted = ctx->aborted, chat_id = ctx->chat_id](const AgentEvent& ev) {
+                    ctx->node->agent_->run(ctx->message, ctx->session_id, [res = ctx->res, aborted = ctx->aborted, chat_id = ctx->chat_id](const AgentEvent& ev) {
                         if (*aborted) return;
-
                         if (ev.type == "token") {
                             std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
                                 std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
@@ -230,19 +228,18 @@ void FiberNode::thread_func() {
                     uWS::HttpResponse<false>* res;
                     std::string message;
                     std::string session_id;
-                    std::string api_key;
                     std::shared_ptr<bool> aborted;
                 };
 
                 auto ctx = new RequestContext{
-                    this, res, std::move(message), std::move(session_id), std::move(auth_header), aborted
+                    this, res, std::move(message), std::move(session_id), aborted
                 };
 
                 // Create fiber to handle the request
                 fiber_create([](void* arg) -> void* {
                     std::unique_ptr<RequestContext> ctx((RequestContext*)arg);
                     
-                    ctx->node->agent_->run(ctx->message, ctx->session_id, ctx->api_key, [res = ctx->res, aborted = ctx->aborted](const AgentEvent& ev) {
+                    ctx->node->agent_->run(ctx->message, ctx->session_id, [res = ctx->res, aborted = ctx->aborted](const AgentEvent& ev) {
                         if (*aborted) return;
                         std::string chunk = "data: {\"type\":\"" + json_util::escape(ev.type) + "\",\"content\":\"" + json_util::escape(ev.content) + "\"}\n\n";
                         res->write(chunk);

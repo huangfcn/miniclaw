@@ -25,7 +25,6 @@ public:
     void run(
         const std::string& user_message,
         const std::string& session_id,
-        const std::string& api_key,
         AgentEventCallback on_event,
         const std::string& channel = ""
     );
@@ -35,11 +34,17 @@ private:
     std::unique_ptr<SessionManager> sessions_;
     std::unique_ptr<SubagentManager> subagents_;
 
+    // Embedding call — fiber-blocking
+    std::vector<float> embed(const std::string& text);
+
     // LLM HTTP call — fiber-blocking, returns structured LLMResponse
     LLMResponse call_llm(
         const std::vector<Message>& messages,
         const std::string& tools_json,
-        AgentEventCallback on_event
+        AgentEventCallback on_event,
+        const std::string& model = "",
+        const std::string& endpoint = "",
+        const std::string& provider = ""
     );
 
     std::string api_key_;

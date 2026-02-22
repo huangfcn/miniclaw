@@ -3,6 +3,10 @@ backend/backend.log
 backend/external/
 backend/build
 
+# third-party
+backend/third-party/faiss/
+backend/third-party/lucene++/
+
 # test output
 backend/*test*.txt
 
@@ -11,3 +15,13 @@ backend.rs/target/
 
 frontend/
 .webui*
+
+# index
+backend/index/
+
+# tests
+# backend/tests/
+backend/test_memory_db/
+
+# openclaw clone
+openclaw/

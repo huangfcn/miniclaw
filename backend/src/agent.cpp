@@ -5,6 +5,7 @@
 #include <simdjson.h>
 #include "json_util.hpp"
 #include <curl/curl.h>
+#include <cmath>
 #include <sstream>
 #include <thread>
 #include <mutex>
@@ -32,23 +33,30 @@ void spawn_in_fiber(std::function<void()> task) {
 Agent::~Agent() = default;
 
 Agent::Agent() {
-    api_key_   = Config::instance().openai_api_key();
+    api_key_   = Config::instance().conversation_api_key();
     api_base_  = std::getenv("OPENAI_API_BASE") ? std::getenv("OPENAI_API_BASE") : "api.openai.com";
-    model_     = Config::instance().openai_model();
+    model_     = Config::instance().conversation_model();
     workspace_ = Config::instance().memory_workspace();
 
-    // Build the LLM call function (now takes tools_json too)
+    // Build the LLM call function (now takes model, endpoint and provider too)
     LLMCallFn llm_fn = [this](
         const std::vector<Message>& messages,
         const std::string& tools_json,
-        AgentEventCallback on_event
+        AgentEventCallback on_event,
+        const std::string& model,
+        const std::string& endpoint,
+        const std::string& provider
     ) -> LLMResponse {
-        return call_llm(messages, tools_json, on_event);
+        return call_llm(messages, tools_json, on_event, model, endpoint, provider);
     };
 
-    loop_ = std::make_unique<AgentLoop>(workspace_, llm_fn, /*max_iterations=*/10);
+    EmbeddingFn embed_fn = [this](const std::string& text) -> std::vector<float> {
+        return embed(text);
+    };
+
+    loop_ = std::make_unique<AgentLoop>(workspace_, llm_fn, embed_fn, /*max_iterations=*/10);
     sessions_ = std::make_unique<SessionManager>(workspace_);
-    subagents_ = std::make_unique<SubagentManager>(workspace_, llm_fn);
+    subagents_ = std::make_unique<SubagentManager>(workspace_, llm_fn, embed_fn);
 
     // Register built-in tools
     loop_->register_tool("exec",       std::make_shared<TerminalTool>());
@@ -60,13 +68,23 @@ Agent::Agent() {
     loop_->register_tool("web_fetch",  std::make_shared<WebFetchTool>());
     loop_->register_tool("spawn",      std::make_shared<SpawnTool>(*subagents_));
 
+    // Register memory search tool schema (handled in AgentLoop::process)
+    struct MemorySearchTool : public Tool {
+        std::string name() const override { return "memory_search"; }
+        std::string description() const override { return "Search through the agent's multi-tiered memory (sessions, daily logs, curated facts) using hybrid search (vector + keyword)."; }
+        std::string schema() const override {
+            return "{\"type\":\"function\",\"function\":{\"name\":\"memory_search\",\"description\":\"Search through memory.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The search query.\"}},\"required\":[\"query\"]}}}";
+        }
+        std::string execute(const std::map<std::string, std::string>&) override { return ""; } // Handled in loop
+    };
+    loop_->register_tool("memory_search", std::make_shared<MemorySearchTool>());
+
     spdlog::info("Agent initialized: model={} workspace={}", model_, workspace_);
 }
 
 void Agent::run(
     const std::string& user_message,
     const std::string& session_id,
-    const std::string& api_key,
     AgentEventCallback on_event,
     const std::string& channel
 ) {
@@ -75,7 +93,6 @@ void Agent::run(
     auto* fiber_tcb = fiber_ident();
     if (fiber_tcb) {
         fiber_set_localdata(fiber_tcb, 0, reinterpret_cast<uint64_t>(new std::string(session_id)));
-        fiber_set_localdata(fiber_tcb, 1, reinterpret_cast<uint64_t>(new std::string(api_key.empty() ? api_key_ : api_key)));
     }
 
     try {
@@ -86,12 +103,8 @@ void Agent::run(
     }
 
     if (fiber_tcb) {
-        auto* s0 = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 0));
-        auto* s1 = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 1));
-        delete s0;
-        delete s1;
+        delete reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 0));
         fiber_set_localdata(fiber_tcb, 0, 0);
-        fiber_set_localdata(fiber_tcb, 1, 0);
     }
 
     sessions_->save(session);
@@ -140,10 +153,124 @@ struct ToolCallAccum {
 
 // ─── call_llm: sends messages + tools, parses streaming tool_calls ───────────
 
+std::vector<float> Agent::embed(const std::string& text) {
+    std::string provider = Config::instance().embedding_provider();
+    std::string model = Config::instance().embedding_model();
+    std::string endpoint = Config::instance().embedding_endpoint();
+
+    // Log the endpoint for debugging local providers
+    spdlog::debug("Embedding using provider: {}, model: {}, endpoint: {}", provider, model, endpoint);
+
+    struct CallData {
+        std::string buffer;
+        fiber_t fiber;
+        std::function<void(CURLcode)> completion_cb;
+        struct curl_slist* headers = nullptr;
+        std::vector<float> embedding;
+    };
+
+    auto* data = new CallData();
+    data->fiber = fiber_ident();
+    CURL* easy = curl_easy_init();
+
+    data->completion_cb = [data, easy](CURLcode) {
+        fiber_resume(data->fiber);
+    };
+
+    std::string payload = "{\"model\":\"" + model + "\",\"input\":\"" + json_util::escape(text) + "\"}";
+
+    data->headers = curl_slist_append(data->headers, "Content-Type: application/json");
+    
+    std::string effective_key = api_key_;
+    auto* fiber_tcb = fiber_ident();
+    if (fiber_tcb) {
+        auto* key_ptr = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 1));
+        if (key_ptr && !key_ptr->empty()) effective_key = *key_ptr;
+    }
+
+    // Auth header only for OpenAI (or similar)
+    if (provider == "openai" || !api_key_.empty()) {
+        std::string auth = "Authorization: Bearer " + effective_key;
+        data->headers = curl_slist_append(data->headers, auth.c_str());
+    }
+
+    std::string effective_endpoint = endpoint;
+    if (effective_endpoint.empty()) {
+        // Build from api_base_ if no explicit endpoint passed
+        if (api_base_.find("http") == 0) {
+            effective_endpoint = api_base_;
+            if (effective_endpoint.find("/v1/chat/completions") == std::string::npos && 
+                effective_endpoint.back() != '/') {
+                effective_endpoint += "/v1/chat/completions";
+            }
+        } else {
+            effective_endpoint = "https://" + api_base_ + "/v1/chat/completions";
+        }
+    }
+
+    curl_easy_setopt(easy, CURLOPT_URL, effective_endpoint.c_str());
+    curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS, payload.c_str());
+    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, data->headers);
+    curl_easy_setopt(easy, CURLOPT_PRIVATE, &data->completion_cb);
+
+    auto write_cb = [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        ((CallData*)userdata)->buffer.append(ptr, size * nmemb);
+        return size * nmemb;
+    };
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, (curl_write_callback)write_cb);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, data);
+
+    CurlMultiManager::instance().add_handle(easy);
+    fiber_suspend(0);
+    CurlMultiManager::instance().remove_handle(easy);
+
+    // Parse result (assuming OpenAI-compatible structure for both local and remote)
+    try {
+        simdjson::dom::parser parser;
+        simdjson::dom::element j;
+        auto padded = simdjson::padded_string(data->buffer);
+        if (!parser.parse(padded).get(j)) {
+            simdjson::dom::array data_arr;
+            if (!j["data"].get(data_arr) && data_arr.size() > 0) {
+                simdjson::dom::array emb_arr;
+                if (!data_arr.at(0)["embedding"].get(emb_arr)) {
+                    for (auto val : emb_arr) {
+                        double d;
+                        if (!val.get(d)) data->embedding.push_back((float)d);
+                    }
+                }
+            }
+        }
+    } catch (...) {}
+
+    // 3. MRL Truncation & L2 Normalization
+    int target_dim = Config::instance().embedding_dimension();
+    if (data->embedding.size() > (size_t)target_dim) {
+        spdlog::debug("MRL Truncating embedding from {} to {}", data->embedding.size(), target_dim);
+        data->embedding.resize(target_dim);
+        
+        double sum_sq = 0;
+        for (float v : data->embedding) sum_sq += (double)v * v;
+        float norm = (float)std::sqrt(sum_sq);
+        if (norm > 1e-9f) {
+            for (float& v : data->embedding) v /= norm;
+        }
+    }
+
+    std::vector<float> result = data->embedding;
+    curl_slist_free_all(data->headers);
+    curl_easy_cleanup(easy);
+    delete data;
+    return result;
+}
+
 LLMResponse Agent::call_llm(
     const std::vector<Message>& messages,
     const std::string& tools_json,
-    AgentEventCallback on_event
+    AgentEventCallback on_event,
+    const std::string& model,
+    const std::string& endpoint,
+    const std::string& provider
 ) {
     // Per-call state shared between write callback and cleanup
     struct CallData {
@@ -184,7 +311,9 @@ LLMResponse Agent::call_llm(
     // ── Build payload ──────────────────────────────────────────────────────
     std::string j_messages = serialize_messages(messages);
 
-    std::string payload_str = "{\"model\":\"" + model_ + "\","
+    std::string effective_model = model.empty() ? model_ : model;
+    
+    std::string payload_str = "{\"model\":\"" + effective_model + "\","
         "\"messages\":" + j_messages + ","
         "\"stream\":true";
 
@@ -196,29 +325,27 @@ LLMResponse Agent::call_llm(
     payload_str += "}";
 
     spdlog::debug("LLM payload (first 1000 chars): {}", payload_str.substr(0, 1000));
-    if (payload_str.size() > 1000) spdlog::debug("LLM payload (last 500 chars): {}", payload_str.substr(payload_str.size() - 500));
-
+    
     // ── Headers ────────────────────────────────────────────────────────────
     data->headers = curl_slist_append(data->headers, "Content-Type: application/json");
-
-    std::string effective_key = api_key_;
-    auto* fiber_tcb = fiber_ident();
-    if (fiber_tcb) {
-        auto* key_ptr = reinterpret_cast<std::string*>(fiber_get_localdata(fiber_tcb, 1));
-        if (key_ptr && !key_ptr->empty()) effective_key = *key_ptr;
+    if (!api_key_.empty()) {
+        std::string auth = "Authorization: Bearer " + api_key_;
+        data->headers = curl_slist_append(data->headers, auth.c_str());
     }
-    std::string auth = "Authorization: Bearer " + effective_key;
-    data->headers = curl_slist_append(data->headers, auth.c_str());
 
     // ── URL ────────────────────────────────────────────────────────────────
-    std::string url = api_base_;
-    if (url.find("http://") != 0 && url.find("https://") != 0) url = "https://" + url;
-    while (!url.empty() && url.back() == '/') url.pop_back();
-    if (url.size() < 3 || url.substr(url.size() - 3) != "/v1") url += "/v1";
-    url += "/chat/completions";
-    spdlog::info("LLM URL: {}", url);
+    std::string effective_endpoint = endpoint;
+    if (effective_endpoint.empty()) {
+        std::string url = api_base_;
+        if (url.find("http://") != 0 && url.find("https://") != 0) url = "https://" + url;
+        while (!url.empty() && url.back() == '/') url.pop_back();
+        if (url.size() < 3 || url.substr(url.size() - 3) != "/v1") url += "/v1";
+        url += "/chat/completions";
+        effective_endpoint = url;
+    }
+    spdlog::info("LLM URL: {}", effective_endpoint);
 
-    curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(easy, CURLOPT_URL, effective_endpoint.c_str());
     curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS, payload_str.c_str());
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, data->headers);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, &data->completion_cb);

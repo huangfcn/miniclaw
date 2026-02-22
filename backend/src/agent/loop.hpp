@@ -46,18 +46,31 @@ using EventCallback = std::function<void(const AgentEvent&)>;
 using LLMCallFn = std::function<LLMResponse(
     const std::vector<Message>& messages,
     const std::string& tools_json,
-    EventCallback on_event
+    EventCallback on_event,
+    const std::string& model,
+    const std::string& endpoint,
+    const std::string& provider
 )>;
+
+using EmbeddingFn = std::function<std::vector<float>(const std::string& text)>;
 
 class AgentLoop {
 public:
+    enum class DistillationEvent {
+        PERIODIC,
+        COMPACTION,
+        SESSION_END
+    };
+
     AgentLoop(
         const std::string& workspace,
         LLMCallFn llm_fn,
+        EmbeddingFn embed_fn,
         int max_iterations = 10
     )
         : context_(workspace)
         , llm_fn_(std::move(llm_fn))
+        , embed_fn_(std::move(embed_fn))
         , max_iterations_(max_iterations)
     {}
 
@@ -154,9 +167,8 @@ public:
         const std::string& channel = "",
         const std::string& chat_id = ""
     ) {
-        context_.memory().append_history(
-            "[" + current_timestamp() + "] USER: " + user_message
-        );
+        // Index user message (Layer 1)
+        context_.memory().index_session_message(session.key, "user", user_message);
 
         int memory_window = 20;
         std::vector<Message> history = session.messages;
@@ -166,13 +178,16 @@ public:
 
         std::vector<Message> messages = context_.build_messages(history, user_message, channel, chat_id);
 
-        const std::string tools_json = build_tools_json();
         int iteration = 0;
 
         while (iteration < max_iterations_) {
             ++iteration;
+            std::string tools_json = build_tools_json();
+            std::string model = Config::instance().conversation_model();
+            std::string endpoint = Config::instance().conversation_endpoint();
+            std::string provider = Config::instance().conversation_provider();
 
-            LLMResponse response = llm_fn_(messages, tools_json, on_event);
+            LLMResponse response = llm_fn_(messages, tools_json, on_event, model, endpoint, provider);
             spdlog::debug("AgentLoop iteration {}: has_tool_calls={} content_len={}",
                 iteration, response.has_tool_calls(), response.content.size());
 
@@ -191,38 +206,67 @@ public:
                     spdlog::info("Tool call: {}({})", tc.name, tc.arguments_json.substr(0, 200));
                     on_event({"tool_start", tc.name + ": " + tc.arguments_json});
 
-                    context_.memory().append_history(
-                        "[" + current_timestamp() + "] TOOL " + tc.name + ": " + tc.arguments_json
-                    );
-
                     std::string output;
                     if (tools_.count(tc.name)) {
                         auto args = parse_arguments(tc.arguments_json);
                         output = tools_.at(tc.name)->execute(args);
+                    } else if (tc.name == "memory_search") {
+                        auto args = parse_arguments(tc.arguments_json);
+                        std::string query = args["query"];
+                        std::vector<float> emb;
+                        if (embed_fn_) emb = embed_fn_(query);
+                        auto results = context_.memory().search(query, emb);
+                        
+                        std::stringstream ss;
+                        ss << "Search Results for \"" << query << "\":\n";
+                        for (const auto& r : results) {
+                            ss << "- [" << r.source << "] " << r.path << ": " << r.text.substr(0, 200) << " (Score: " << r.score << ")\n";
+                        }
+                        output = ss.str();
                     } else {
                         output = "Error: unknown tool '" + tc.name + "'";
                     }
 
                     on_event({"tool_end", output});
-                    context_.memory().append_history(
-                        "[" + current_timestamp() + "] TOOL_OUTPUT: " + output.substr(0, 500)
-                    );
-
                     messages.push_back(make_tool_result_message(tc.id, tc.name, output));
                 }
 
             } else {
-                // Final answer
-                context_.memory().append_history(
-                    "[" + current_timestamp() + "] ASSISTANT: " + response.content
-                );
+                // Final answer - Index it
+                context_.memory().index_session_message(session.key, "assistant", response.content);
 
                 session.add_message("user", user_message);
                 session.add_message("assistant", response.content);
 
-                if (session.messages.size() - session.last_consolidated >
-                        Config::instance().memory_consolidation_threshold()) {
+                // Check for L1 -> L2 distillation (Message count OR reactive Token count floor)
+                size_t estimated_tokens = session.estimate_tokens();
+                size_t token_limit = Config::instance().memory_context_window();
+                float floor_threshold = Config::instance().memory_compaction_threshold();
+                
+                bool threshold_hit = (session.messages.size() - session.last_consolidated > Config::instance().memory_l1_to_l2_threshold());
+                bool context_near_full = (estimated_tokens > token_limit * floor_threshold);
+
+                if (threshold_hit || context_near_full) {
+                    if (context_near_full) {
+                        spdlog::info("Context near full ({} tokens), triggering proactive memory flush", estimated_tokens);
+                        distill_l1_to_l2(session, DistillationEvent::COMPACTION);
+                    } else {
+                        distill_l1_to_l2(session, DistillationEvent::PERIODIC);
+                    }
+                }
+
+                // Check for L2 -> L3 distillation (Time-based: Daily + after specific time + Catch-up)
+                std::string today = current_date();
+                std::string yesterday = yesterday_date();
+                std::string now_time = current_time_hhmm();
+                std::string target_time = Config::instance().memory_distillation_time();
+
+                bool missed_days = (!session.last_consolidation_date.empty() && session.last_consolidation_date < yesterday);
+                bool today_due = (session.last_consolidation_date != today && now_time >= target_time);
+
+                if (missed_days || today_due) {
                     consolidate_memory(session);
+                    session.last_consolidation_date = today;
                 }
 
                 on_event({"done", ""});
@@ -232,6 +276,57 @@ public:
 
         if (iteration >= max_iterations_) {
             on_event({"error", "Max iterations reached"});
+        }
+    }
+
+    void distill_l1_to_l2(Session& session, DistillationEvent event = DistillationEvent::PERIODIC) {
+        spdlog::info("Distilling L1 to L2 for session: {} (Event: {})", session.key, (int)event);
+        
+        int start = session.last_consolidated;
+        int end = session.messages.size();
+        
+        std::stringstream conv;
+        for (int i = start; i < end; ++i) {
+            conv << "[" << session.messages[i].role << "]: " << session.messages[i].content << "\n";
+        }
+
+        std::string event_name = "prompt_periodic";
+        std::string default_tpl = "Summarize the following conversation segment into a durable daily log entry.";
+        
+        if (event == DistillationEvent::COMPACTION) {
+            event_name = "prompt_compaction";
+            default_tpl = "The session is near compaction. Store durable memories now.";
+        } else if (event == DistillationEvent::SESSION_END) {
+            event_name = "prompt_session";
+            default_tpl = "This session is ending. Summarize the conversation.";
+        }
+
+        std::string template_str = Config::instance().load_prompt(event_name, default_tpl);
+        
+        // Simple replacement of {{CONVERSATION}}
+        size_t pos = template_str.find("{{CONVERSATION}}");
+        if (pos != std::string::npos) {
+            template_str.replace(pos, 16, conv.str());
+        } else {
+            template_str += "\n\n## Conversation Segment\n" + conv.str();
+        }
+
+        std::vector<Message> msgs = {
+            {"system", "You are a memory distillation agent. Your goal is to compress raw session logs into meaningful daily summaries.", "", "", ""},
+            {"user", template_str, "", "", ""}
+        };
+
+        // Use dedicated distillation model/endpoint if configured
+        std::string provider = Config::instance().memory_distillation_provider();
+        std::string model = Config::instance().memory_distillation_model();
+        std::string endpoint = Config::instance().memory_distillation_endpoint();
+
+        LLMResponse result = llm_fn_(msgs, "[]", [](const AgentEvent&){}, model, endpoint, provider);
+        
+        if (!result.content.empty()) {
+            context_.memory().append_daily_log(result.content);
+            session.last_consolidated = end;
+            spdlog::info("L1 -> L2 distillation completed");
         }
     }
 
@@ -260,7 +355,12 @@ public:
             {"user", prompt, "", "", ""}
         };
 
-        LLMResponse result = llm_fn_(msgs, "[]", [](const AgentEvent&){});
+        // Use dedicated distillation model/endpoint if configured
+        std::string provider = Config::instance().memory_distillation_provider();
+        std::string model = Config::instance().memory_distillation_model();
+        std::string endpoint = Config::instance().memory_distillation_endpoint();
+
+        LLMResponse result = llm_fn_(msgs, "[]", [](const AgentEvent&){}, model, endpoint, provider);
 
         try {
             size_t start_json = result.content.find('{');
@@ -279,7 +379,7 @@ public:
                         std::string entry;
                         if (!history_val.get(entry_sv)) entry = std::string(entry_sv);
                         else entry = simdjson::to_string(history_val);
-                        context_.memory().append_history("--- CONSOLIDATED ---\n" + entry);
+                        context_.memory().index_session_message(session.key, "system", "--- CONSOLIDATED ---\n" + entry);
                     }
                     simdjson::dom::element memory_val;
                     if (!res["memory_update"].get(memory_val)) {
@@ -290,7 +390,8 @@ public:
                         context_.memory().write_long_term(update);
                     }
                     session.last_consolidated = end;
-                    spdlog::info("Memory consolidated successfully");
+                    session.last_consolidation_date = current_date();
+                    spdlog::info("Memory consolidated successfully for date: {}", session.last_consolidation_date);
                 } else {
                     spdlog::error("simdjson parse error in consolidate_memory");
                 }
@@ -305,6 +406,7 @@ public:
 private:
     ContextBuilder context_;
     LLMCallFn llm_fn_;
+    EmbeddingFn embed_fn_;
     int max_iterations_;
     std::map<std::string, std::shared_ptr<Tool>> tools_;
 
@@ -319,6 +421,32 @@ private:
             else out += c;
         }
         return out;
+    }
+
+    static std::string current_time_hhmm() {
+        auto now = std::chrono::system_clock::now();
+        std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm tm = *std::localtime(&t);
+        char buf[8];
+        std::strftime(buf, sizeof(buf), "%H:%M", &tm);
+        return buf;
+    }
+
+    static std::string current_date() {
+        return date_at_offset(0);
+    }
+
+    static std::string yesterday_date() {
+        return date_at_offset(-1);
+    }
+
+    static std::string date_at_offset(int days_offset) {
+        auto now = std::chrono::system_clock::now();
+        std::time_t t = std::chrono::system_clock::to_time_t(now + std::chrono::hours(24 * days_offset));
+        std::tm tm = *std::localtime(&t);
+        char buf[16];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
+        return buf;
     }
 
     static std::string current_timestamp() {

@@ -7,7 +7,14 @@
 // Mock LLM: on first call returns a native tool_call (write_file),
 // on second call returns the final answer.
 int g_llm_calls = 0;
-LLMResponse mock_llm_fn(const std::vector<Message>& messages, const std::string& tools_json, EventCallback on_event) {
+LLMResponse mock_llm_fn(
+    const std::vector<Message>& messages, 
+    const std::string& tools_json, 
+    EventCallback on_event,
+    const std::string& model,
+    const std::string& endpoint,
+    const std::string& provider
+) {
     g_llm_calls++;
     LLMResponse resp;
     if (g_llm_calls == 1) {
@@ -26,7 +33,8 @@ LLMResponse mock_llm_fn(const std::vector<Message>& messages, const std::string&
 
 int main() {
     std::string workspace = ".";
-    AgentLoop loop(workspace, mock_llm_fn, 5);
+    auto mock_embed_fn = [](const std::string&) -> std::vector<float> { return {}; };
+    AgentLoop loop(workspace, mock_llm_fn, mock_embed_fn, 5);
     loop.register_tool("write_file", std::make_shared<WriteFileTool>());
 
     Session session;

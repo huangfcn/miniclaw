@@ -1,0 +1,12 @@
+prefix=/Users/yzhou62/workspace/LucenePlusPlus/build/install
+exec_prefix=${prefix}/bin
+libdir=${prefix}/lib
+includedir=${prefix}/include/lucene++
+lib=lucene++
+
+Name: liblucene++
+Description: Lucene++ - a C++ search engine, ported from the popular Apache Lucene
+Version: 3.0.9
+Libs: -L${libdir} -l${lib}
+Cflags: -I${includedir}
+

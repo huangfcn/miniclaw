@@ -1,0 +1,4 @@
+This conversation is ending. Provide a comprehensive summary of the entire session, including finalized decisions, resolved issues, and pending tasks, for a durable daily log entry (L2 memory).
+
+## Conversation Segment
+{{CONVERSATION}}

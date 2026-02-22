@@ -26,10 +26,19 @@ struct Session {
     std::string updated_at;
     std::string metadata = "{}"; // Store raw JSON string
     int last_consolidated = 0;
+    std::string last_consolidation_date;
 
     void add_message(const std::string& role, const std::string& content) {
         messages.push_back({role, content});
         updated_at = current_iso_timestamp();
+    }
+
+    size_t estimate_tokens() const {
+        size_t tokens = 0;
+        for (const auto& msg : messages) {
+            tokens += (msg.role.length() + msg.content.length()) / 4 + 1;
+        }
+        return tokens;
     }
 
 private:
@@ -82,7 +91,8 @@ public:
         std::string meta_line = "{\"_type\":\"metadata\",\"created_at\":\"" + session.created_at + 
                                "\",\"updated_at\":\"" + session.updated_at + 
                                "\",\"metadata\":" + session.metadata + 
-                               ",\"last_consolidated\":" + std::to_string(session.last_consolidated) + "}";
+                               ",\"last_consolidated\":" + std::to_string(session.last_consolidated) + 
+                               ",\"last_consolidation_date\":\"" + session.last_consolidation_date + "\"}";
         f << meta_line << "\n";
 
         // Message lines
@@ -139,6 +149,10 @@ private:
                     int64_t consolidated;
                     if (!data["last_consolidated"].get(consolidated)) {
                         session.last_consolidated = (int)consolidated;
+                    }
+                    std::string_view date_sv;
+                    if (!data["last_consolidation_date"].get(date_sv)) {
+                        session.last_consolidation_date = std::string(date_sv);
                     }
                 } else {
                     std::string_view role_sv, content_sv;
