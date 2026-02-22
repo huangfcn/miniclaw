@@ -70,6 +70,12 @@ target_include_directories(uSockets PRIVATE
     ${EXTERNAL_DIR}/libuv/include
 )
 
+# Third-party libraries (prebuilt)
+set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
+set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
+set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
+set(FIBER_DIR "${THIRDPARTY_DIR}/fiber")
+
 set_target_properties(uSockets PROPERTIES LINKER_LANGUAGE C)
 
 add_executable(miniclaw 
@@ -83,7 +89,7 @@ target_include_directories(miniclaw PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/libuv/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${FIBER_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
     ${yaml-cpp_SOURCE_DIR}/include
@@ -96,10 +102,6 @@ target_compile_definitions(miniclaw PRIVATE
     __1_N_MODEL__
 )
 
-# Third-party libraries (prebuilt)
-set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
-set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
-set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
 
 target_include_directories(miniclaw PRIVATE 
     ${FAISS_DIR}/include
@@ -117,7 +119,7 @@ target_link_libraries(miniclaw PRIVATE
     yaml-cpp
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
     ${LUCENE_DIR}/lib/liblucene++.dylib
     ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
@@ -131,16 +133,16 @@ target_link_libraries(miniclaw PRIVATE
 )
 
 add_executable(test_fiber tests/test_fiber.cpp)
-target_include_directories(test_fiber PRIVATE 
+    target_include_directories(test_fiber PRIVATE 
     ${EXTERNAL_DIR}/libuv/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${FIBER_DIR}/include
 )
 target_link_libraries(test_fiber PRIVATE 
     pthread
     CURL::libcurl
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FIBER_DIR}/lib/libfiber.a
 )
 
 add_executable(test_agent_loop tests/test_agent_loop.cpp src/agent/memory_index.cpp)
@@ -148,7 +150,7 @@ target_include_directories(test_agent_loop PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/libuv/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${FIBER_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -161,7 +163,7 @@ target_link_libraries(test_agent_loop PRIVATE
     yaml-cpp
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
     ${LUCENE_DIR}/lib/liblucene++.dylib
     ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
@@ -181,7 +183,7 @@ target_include_directories(test_memory_index PRIVATE
     ${LUCENE_DIR}/include
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/libuv/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${FIBER_DIR}/include
 )
 target_link_libraries(test_memory_index PRIVATE 
     pthread
@@ -189,7 +191,7 @@ target_link_libraries(test_memory_index PRIVATE
     yaml-cpp
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
     ${LUCENE_DIR}/lib/liblucene++.dylib
     ${LUCENE_DIR}/lib/liblucene++-contrib.dylib
@@ -207,7 +209,7 @@ target_include_directories(test_distillation PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${EXTERNAL_DIR}/libuv/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fiber
+    ${FIBER_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -220,7 +222,7 @@ target_link_libraries(test_distillation PRIVATE
     yaml-cpp
     simdjson
     ${EXTERNAL_DIR}/libuv/lib/libuv.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libfiber.a
+    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
     ${LUCENE_DIR}/lib/liblucene++.dylib
     ${LUCENE_DIR}/lib/liblucene++-contrib.dylib

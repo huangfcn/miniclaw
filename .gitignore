@@ -6,6 +6,7 @@ backend/build
 # third-party
 backend/third-party/faiss/
 backend/third-party/lucene++/
+backend/third-party/fiber/
 
 # test output
 backend/*test*.txt
