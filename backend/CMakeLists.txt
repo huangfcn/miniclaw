@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(OpenMP REQUIRED)
 
 # Define directories early for all targets
 set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
@@ -152,8 +153,11 @@ elseif(WIN32)
     target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(miniclaw PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.so
-        ${LUCENE_DIR}/lib/liblucene++-contrib.so
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        OpenMP::OpenMP_CXX
+        blas
+        lapack
     )
     target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
 endif()
@@ -224,6 +228,15 @@ elseif(WIN32)
         gomp
     )
     target_link_libraries(test_agent_loop PRIVATE ${Boost_LIBRARIES})
+else()
+    target_link_libraries(test_agent_loop PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        OpenMP::OpenMP_CXX
+        blas
+        lapack
+    )
+    target_link_libraries(test_agent_loop PRIVATE ${Boost_LIBRARIES})
 endif()
 
 add_executable(test_memory_index tests/test_memory_index.cpp src/agent/memory_index.cpp)
@@ -263,6 +276,15 @@ elseif(WIN32)
         userenv
         dbghelp
         gomp
+    )
+    target_link_libraries(test_memory_index PRIVATE ${Boost_LIBRARIES})
+else()
+    target_link_libraries(test_memory_index PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        OpenMP::OpenMP_CXX
+        blas
+        lapack
     )
     target_link_libraries(test_memory_index PRIVATE ${Boost_LIBRARIES})
 endif()
@@ -309,6 +331,15 @@ elseif(WIN32)
         gomp
     )
     target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
+else()
+    target_link_libraries(test_distillation PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        OpenMP::OpenMP_CXX
+        blas
+        lapack
+    )
+    target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
 endif()
 
 add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp)
@@ -348,4 +379,13 @@ if(APPLE)
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(test_distillation_real PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+else()
+    target_link_libraries(test_distillation_real PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        OpenMP::OpenMP_CXX
+        blas
+        lapack
+    )
+    target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
 endif()
