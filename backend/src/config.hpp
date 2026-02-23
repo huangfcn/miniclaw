@@ -35,7 +35,10 @@ public:
             }
         }
         config_ = YAML::LoadFile(actual_path);
+        actual_config_path_ = std::filesystem::absolute(actual_path).string();
     }
+    
+    std::string config_file_path() const { return actual_config_path_; }
 
     // Server
     int server_port() const { return get("server", "port", 9000); }
@@ -113,6 +116,7 @@ public:
 private:
     Config() = default;
     YAML::Node config_;
+    std::string actual_config_path_;
 
     template<typename T>
     T get(const std::string& section, const std::string& key, T default_val) const {

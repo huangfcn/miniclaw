@@ -73,6 +73,36 @@ int main() {
     spdlog::flush_on(spdlog::level::debug);
 
     spdlog::info("Starting miniclaw Backend (C++) with uWebSockets");
+    spdlog::info("Config file: {}", Config::instance().config_file_path());
+    spdlog::info("Memory workspace: {}", Config::instance().memory_workspace());
+    
+    std::string skills_path = Config::instance().skills_path();
+    spdlog::info("Skills path: {}", std::filesystem::absolute(skills_path).string());
+    
+    // List available skills
+    try {
+        if (std::filesystem::exists(skills_path) && std::filesystem::is_directory(skills_path)) {
+            std::vector<std::string> skill_list;
+            for (const auto& entry : std::filesystem::directory_iterator(skills_path)) {
+                if (entry.is_directory()) {
+                    skill_list.push_back(entry.path().filename().string());
+                }
+            }
+            if (!skill_list.empty()) {
+                std::string list_str;
+                for (size_t i = 0; i < skill_list.size(); ++i) {
+                    list_str += skill_list[i] + (i == skill_list.size() - 1 ? "" : ", ");
+                }
+                spdlog::info("Available skills: [{}]", list_str);
+            } else {
+                spdlog::info("No skills found in {}", skills_path);
+            }
+        } else {
+            spdlog::warn("Skills directory not found: {}", skills_path);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("Error listing skills: {}", e.what());
+    }
 
     FiberGlobalStartup();
     
