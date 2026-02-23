@@ -346,7 +346,7 @@ add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent
 target_include_directories(test_distillation_real PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
-    ${EXTERNAL_DIR}/libuv/include
+    ${LIBUV_DIR}/include
     ${FIBER_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include

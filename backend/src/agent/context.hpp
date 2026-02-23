@@ -103,7 +103,7 @@ private:
 
         std::ostringstream ss;
         ss << "# miniclaw 🦞\n\n"
-           << "You are miniclaw, a high-performance autonomous AI assistant.\n\n"
+           << "You are miniclaw, a high-performance personal AI assistant.\n\n"
            << "## Current Time\n" << time_buf << "\n\n"
            << "## Workspace\n"
            << "Your workspace is at: " << ws << "\n"
