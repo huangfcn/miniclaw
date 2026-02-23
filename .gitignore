@@ -2,6 +2,7 @@
 backend/backend.log
 backend/external/
 backend/build
+backend/dist/
 
 # third-party
 backend/third-party/faiss/

@@ -262,6 +262,15 @@ void FiberNode::thread_func() {
         }
     });
 
+    // Keep-alive fiber to prevent scheduler from exiting when idle
+    fiber_create([](void* arg) -> void* {
+        bool* running = (bool*)arg;
+        while (*running) {
+            fiber_usleep(1000000); // 1s
+        }
+        return nullptr;
+    }, &running_, NULL, 4096);
+
     // Pulse Libuv from the Fiber Scheduler
     fibthread_args_t fiber_args;
     fiber_args.fiberSchedulerCallback = [](void* arg) -> bool {
