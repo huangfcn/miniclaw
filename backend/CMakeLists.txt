@@ -379,6 +379,18 @@ if(APPLE)
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(test_distillation_real PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+elseif(WIN32)
+    target_link_libraries(test_distillation_real PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        openblas
+        ws2_32
+        iphlpapi
+        userenv
+        dbghelp
+        gomp
+    )
+    target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(test_distillation_real PRIVATE 
         ${LUCENE_DIR}/lib/liblucene++.a

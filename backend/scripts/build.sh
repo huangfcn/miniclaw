@@ -30,6 +30,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 fi
 
 # Run CMake
+EXT_CMAKE_ARGS="$EXT_CMAKE_ARGS -DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 cmake .. $EXT_CMAKE_ARGS
 
 # Build the project
