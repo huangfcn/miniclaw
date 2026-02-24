@@ -91,6 +91,7 @@ add_executable(miniclaw
     src/agent.cpp
     src/agent/fiber_pool.cpp
     src/agent/memory_index.cpp
+    src/agent/shutdown.cpp
 )
 
 target_include_directories(miniclaw PRIVATE 
@@ -342,7 +343,7 @@ else()
     target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
 endif()
 
-add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp)
+add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp)
 target_include_directories(test_distillation_real PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include

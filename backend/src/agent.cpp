@@ -429,7 +429,9 @@ LLMResponse Agent::call_llm(
             if (!delta["tool_calls"].get(tc_arr)) {
                 for (auto tc_elem : tc_arr) {
                     int64_t idx = 0;
-                    tc_elem["index"].get(idx);
+                    if (tc_elem["index"].get(idx)) {
+                        spdlog::warn("Missing index in tool_call chunk");
+                    }
 
                     // Grow accumulator array if needed
                     while ((int64_t)d->tool_calls.size() <= idx) {

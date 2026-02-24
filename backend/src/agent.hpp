@@ -11,6 +11,8 @@
 // Event callback type (same as AgentLoop's EventCallback)
 using AgentEventCallback = EventCallback;
 
+#include "agent/shutdown.hpp"
+
 class SubagentManager;
 
 void init_spawn_system();

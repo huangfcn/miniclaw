@@ -1,0 +1,33 @@
+server:
+  port: 9000
+  threads: 4
+
+conversation:
+  provider: "local" # or "openai", "anthropic", etc.
+  model: "gpt-4o-mini"
+  endpoint: "http://localhost:11434/v1/chat/completions"
+  api_key: "sk-your-key-here"
+
+memory:
+  workspace: "."
+  l1_to_l2_threshold: 500
+  compaction_threshold: 0.8
+  time: "13:00"
+
+  provider: "local"
+  model: "qwen3:8b"
+  endpoint: "http://localhost:11434/v1/chat/completions"
+
+embedding:
+  provider: "local"
+  model: "qwen3-embedding:8b"
+  endpoint: "http://localhost:11434/v1/embeddings"
+  dimension: 1024
+
+logging:
+  level: "info"
+  file: "backend.log"
+  enabled: true
+
+skills:
+  path: "skills"

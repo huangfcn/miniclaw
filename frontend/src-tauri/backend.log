@@ -1,0 +1,42 @@
+[2026-02-23 13:05:46.039] [multi_sink] [info] Starting miniclaw Backend (C++) with uWebSockets
+[2026-02-23 13:05:46.044] [multi_sink] [info] Agent initialized: model=gpt-4o-mini workspace=C:\workspace\miniclaw\frontend\gui\src-tauri
+[2026-02-23 13:05:46.044] [multi_sink] [info] Initializing FiberPool with 4 nodes
+[2026-02-23 13:05:46.055] [multi_sink] [info] Fiber node thread started: 8670141377090704656
+[2026-02-23 13:05:46.055] [multi_sink] [info] Fiber node thread started: 18137369640724998020
+[2026-02-23 13:05:46.055] [multi_sink] [info] Fiber node thread started: 1230235464250880600
+[2026-02-23 13:05:46.055] [multi_sink] [info] Fiber node thread started: 4249528327736205830
+[2026-02-23 13:05:46.056] [multi_sink] [info] Spawn system (FiberPool) ready
+[2026-02-23 13:05:46.056] [multi_sink] [info] Backend running on port 9000 (Non-blocking Fiber Nodes)
+[2026-02-23 13:05:46.057] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:05:46.057] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:05:46.057] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:05:46.057] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:06:06.342] [multi_sink] [info] Internal Chat API: model=miniclaw, session=default, msg_len=5
+[2026-02-23 13:06:06.379] [multi_sink] [info] LLM URL: https://api.openai.com/v1/chat/completions
+[2026-02-23 13:06:06.634] [multi_sink] [error] LLM HTTP Error: 401
+[2026-02-23 13:07:11.223] [multi_sink] [info] Starting miniclaw Backend (C++) with uWebSockets
+[2026-02-23 13:07:11.225] [multi_sink] [info] Agent initialized: model=gpt-4o-mini workspace=C:\workspace\miniclaw\frontend\gui\src-tauri
+[2026-02-23 13:07:11.225] [multi_sink] [info] Initializing FiberPool with 4 nodes
+[2026-02-23 13:07:11.235] [multi_sink] [info] Fiber node thread started: 4249528327736205830
+[2026-02-23 13:07:11.235] [multi_sink] [info] Fiber node thread started: 1230235464250880600
+[2026-02-23 13:07:11.235] [multi_sink] [info] Fiber node thread started: 18137369640724998020
+[2026-02-23 13:07:11.235] [multi_sink] [info] Fiber node thread started: 8670141377090704656
+[2026-02-23 13:07:11.236] [multi_sink] [info] Spawn system (FiberPool) ready
+[2026-02-23 13:07:11.236] [multi_sink] [info] Backend running on port 9000 (Non-blocking Fiber Nodes)
+[2026-02-23 13:07:11.236] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:07:11.236] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:07:11.236] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:07:11.236] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:21:53.757] [multi_sink] [info] Starting miniclaw Backend (C++) with uWebSockets
+[2026-02-23 13:21:53.757] [multi_sink] [info] Agent initialized: model=gpt-5 workspace=C:\workspace\miniclaw\frontend\gui\src-tauri
+[2026-02-23 13:21:53.757] [multi_sink] [info] Initializing FiberPool with 4 nodes
+[2026-02-23 13:21:53.767] [multi_sink] [info] Fiber node thread started: 18137369640724998020
+[2026-02-23 13:21:53.767] [multi_sink] [info] Fiber node thread started: 1230235464250880600
+[2026-02-23 13:21:53.767] [multi_sink] [info] Spawn system (FiberPool) ready
+[2026-02-23 13:21:53.768] [multi_sink] [info] Backend running on port 9000 (Non-blocking Fiber Nodes)
+[2026-02-23 13:21:53.768] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:21:53.768] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:21:53.777] [multi_sink] [info] Fiber node thread started: 8670141377090704656
+[2026-02-23 13:21:53.778] [multi_sink] [info] Fiber node thread started: 4249528327736205830
+[2026-02-23 13:21:53.778] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-23 13:21:53.778] [multi_sink] [info] FiberNode listening on port 9000

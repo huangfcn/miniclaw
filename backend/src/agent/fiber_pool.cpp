@@ -82,6 +82,13 @@ void FiberNode::thread_func() {
             "{\"id\":\"gpt-5-mini\",\"object\":\"model\",\"created\":1750000001,\"owned_by\":\"openai\"}"
         "]}";
         res->end(response);
+    }).post("/api/shutdown", [](auto *res, auto *req) {
+        spdlog::info("Shutdown requested via API");
+        res->writeHeader("Access-Control-Allow-Origin", "*")
+           ->end("{\"status\":\"shutting_down\"}");
+        
+        // Trigger the global shutdown
+        miniclaw_trigger_shutdown();
     }).post("/v1/chat/completions", [this](auto *res, auto *req) {
         auto aborted = std::make_shared<bool>(false);
         auto body_buffer = std::make_shared<std::string>();
@@ -111,7 +118,9 @@ void FiberNode::thread_func() {
                 // Extract last user message for miniclaw's current single-message processing
                 std::string message = "";
                 std::string_view requested_model_sv;
-                (void)x["model"].get(requested_model_sv);
+                if (!x["model"].get(requested_model_sv)) {
+                    // model found
+                }
                 std::string requested_model = std::string(requested_model_sv.empty() ? "unknown" : requested_model_sv);
 
                 simdjson::dom::array messages;
@@ -120,8 +129,9 @@ void FiberNode::thread_func() {
                         simdjson::dom::element last_msg;
                         if (!messages.at(messages.size() - 1).get(last_msg)) {
                             std::string_view content_sv;
-                            (void)last_msg["content"].get(content_sv);
-                            message = std::string(content_sv);
+                            if (!last_msg["content"].get(content_sv)) {
+                                message = std::string(content_sv);
+                            }
                         }
                     }
                 }
@@ -206,10 +216,10 @@ void FiberNode::thread_func() {
                 }
 
                 std::string_view message_sv, session_id_sv, requested_model_sv;
-                (void)x["message"].get(message_sv);
-                (void)x["session_id"].get(session_id_sv);
-                (void)x["model"].get(requested_model_sv);
-
+                if (!x["message"].get(message_sv)) {}
+                if (!x["session_id"].get(session_id_sv)) {}
+                if (!x["model"].get(requested_model_sv)) {}
+                
                 std::string message = std::string(message_sv);
                 std::string session_id = std::string(session_id_sv);
                 std::string requested_model = std::string(requested_model_sv.empty() ? "default" : requested_model_sv);

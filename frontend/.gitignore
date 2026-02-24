@@ -1,0 +1,31 @@
+# --- Node.js / Frontend ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vscode/
+.idea/
+.DS_Store
+
+# --- Tauri / Rust ---
+/src-tauri/target/
+/src-tauri/gen/schemas/
+/src-tauri/binaries/
+Cargo.lock
+
+# --- miniclaw Specific ---
+
+# Ignore the compiled backend binaries (should be built from source)
+/miniclaw/bin/
+/miniclaw/index/
+
+# Ignore local user configuration (prevents leaking API keys)
+# /miniclaw/config/config.yaml
+
+# Ignore user memory and logs
+/miniclaw/memory/
+/miniclaw/*.log
+
+# --- Junk ---
+/gui.tar.gz
+temp/

@@ -18,7 +18,7 @@ backend/*test*.txt
 # backend.rs
 backend.rs/target/
 
-frontend/
+# frontend/
 .webui*
 
 # index

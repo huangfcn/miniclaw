@@ -108,13 +108,14 @@ public:
             if (!j["web"]["results"].get(results)) {
                 for (auto item : results) {
                     std::string_view title_sv, url_sv, desc_sv;
-                    (void)item["title"].get(title_sv);
-                    (void)item["url"].get(url_sv);
-                    (void)item["description"].get(desc_sv);
-
-                    ss << ++count << ". " << title_sv << "\n"
-                       << "   URL: " << url_sv << "\n"
-                       << "   " << desc_sv << "\n\n";
+                    if (!item["title"].get(title_sv) &&
+                        !item["url"].get(url_sv) &&
+                        !item["description"].get(desc_sv)) {
+                        
+                        ss << ++count << ". " << title_sv << "\n"
+                           << "   URL: " << url_sv << "\n"
+                           << "   " << desc_sv << "\n\n";
+                    }
                     if (count >= 5) break;
                 }
             }

@@ -1,4 +1,5 @@
 #include "agent.hpp"
+#include "agent/shutdown.hpp"
 #include <spdlog/spdlog.h>
 #include <csignal> 
 #include <curl/curl.h>
@@ -14,10 +15,7 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include "config.hpp"
 
-// Globals for signal handling
-static std::mutex mtx;
-static std::condition_variable cv;
-static bool exit_signal = false;
+// (Moved to shutdown.cpp)
 
 static std::atomic<time_t> last_ctrl_c_time{0};
 void signal_handler(int signum) {
@@ -33,11 +31,7 @@ void signal_handler(int signum) {
     const char msg[] = "\nReceived Ctrl-C, initiating graceful shutdown... (Press Ctrl-C again within 5s to force exit)\n";
     write(STDERR_FILENO, msg, sizeof(msg) - 1);
     
-    {
-        std::unique_lock<std::mutex> lock(mtx);
-        exit_signal = true;
-    }
-    cv.notify_one();
+    miniclaw_trigger_shutdown();
 }
 
 int main() {
@@ -121,8 +115,7 @@ int main() {
     std::signal(SIGINT, signal_handler);
 
     // Keep the main thread alive
-    std::unique_lock<std::mutex> lock(mtx);
-    cv.wait(lock, [&]{ return exit_signal; });
+    miniclaw_wait_for_shutdown();
 
     spdlog::info("Initiating graceful shutdown...");
     FiberPool::instance().stop(); // Stop the FiberPool

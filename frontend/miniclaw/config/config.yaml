@@ -3,14 +3,14 @@ server:
   threads: 4
 
 conversation:
-  provider: "openai"
-  model: "gpt-5"
-  endpoint: "https://api.openai.com/v1/chat/completions"
+  provider: "local"
+  model: "gpt-oss:120b"
+  endpoint: "http://localhost:11434/v1/chat/completions"
   # api_key: "sk-..." # Can be set here or via environment
 
 memory:
   workspace: "."
-  l1_to_l2_threshold: 300 # messages before L1 -> L2 distillation
+  l1_to_l2_threshold: 500 # messages before L1 -> L2 distillation
   compaction_threshold: 0.8 # trigger proactive flush at 80% context
   time: "13:00" # trigger L2 -> L3 distillation after 1:00 PM
 

@@ -143,8 +143,9 @@ private:
                     session.metadata = simdjson::to_string(data["metadata"]);
                     
                     std::string_view created_sv;
-                    (void)data["created_at"].get(created_sv);
-                    session.created_at = std::string(created_sv);
+                    if (!data["created_at"].get(created_sv)) {
+                        session.created_at = std::string(created_sv);
+                    }
                     
                     int64_t consolidated;
                     if (!data["last_consolidated"].get(consolidated)) {
@@ -156,9 +157,9 @@ private:
                     }
                 } else {
                     std::string_view role_sv, content_sv;
-                    (void)data["role"].get(role_sv);
-                    (void)data["content"].get(content_sv);
-                    session.messages.push_back({std::string(role_sv), std::string(content_sv)});
+                    if (!data["role"].get(role_sv) && !data["content"].get(content_sv)) {
+                        session.messages.push_back({std::string(role_sv), std::string(content_sv)});
+                    }
                 }
             } else {
                 spdlog::warn("simdjson parse error in session load: {} (line: {})", (int)error, line);
