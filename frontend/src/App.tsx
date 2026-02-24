@@ -4,7 +4,8 @@ import Sidebar from "./components/Sidebar";
 import Chat from "./components/Chat";
 import Settings from "./components/Settings";
 import Monitoring from "./components/Monitoring";
-import { Terminal, Settings as SettingsIcon, MessageSquare, Activity } from "lucide-react";
+// No icons used in App.tsx
+
 
 function App() {
   const [activeTab, setActiveTab] = useState("chat");

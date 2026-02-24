@@ -38,15 +38,15 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
         // SSE support if needed, but for simplicity let's assume it's buffered for now
         // Or handle SSE streaming here
         responseType: 'text',
-        onDownloadProgress: (progressEvent) => {
-            // Placeholder for real SSE handling if we want to stream
+        onDownloadProgress: (_progressEvent) => {
+          // Placeholder for real SSE handling if we want to stream
         }
       });
 
       // Simple parsing of SSE for now (very basic)
       const dataStr = response.data;
       const botMessage: Message = { role: "bot", content: "" };
-      
+
       // Basic SSE parsing logic
       const lines = dataStr.split('\n');
       for (const line of lines) {
@@ -63,7 +63,7 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
       if (botMessage.content) {
         setMessages((prev) => [...prev, botMessage]);
       } else {
-         setMessages((prev) => [...prev, { role: "bot", content: "Error: No response content." }]);
+        setMessages((prev) => [...prev, { role: "bot", content: "Error: No response content." }]);
       }
     } catch (error) {
       console.error("Chat error:", error);
@@ -83,21 +83,20 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
             <p className="text-sm text-rose-300">The miniclaw core is currently inactive. Head to the Monitoring tab to launch it.</p>
           </div>
         )}
-        
+
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm flex space-x-3 ${
-              msg.role === "user" 
-                ? "bg-indigo-600 text-white" 
+            <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm flex space-x-3 ${msg.role === "user"
+                ? "bg-indigo-600 text-white"
                 : "bg-gray-800 text-gray-100 border border-gray-700/50"
-            }`}>
+              }`}>
               {msg.role === "bot" && <Bot className="w-5 h-5 mt-1 shrink-0 text-indigo-400" />}
               <div className="whitespace-pre-wrap leading-relaxed text-[15px]">{msg.content}</div>
               {msg.role === "user" && <User className="w-5 h-5 mt-1 shrink-0 opacity-80" />}
             </div>
           </div>
         ))}
-        
+
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-800/80 border border-gray-700/50 rounded-2xl p-4 flex items-center space-x-3 text-indigo-400">
@@ -119,14 +118,13 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
           />
-          <button 
+          <button
             disabled={!isBackendRunning || isLoading || !input.trim()}
             onClick={handleSendMessage}
-            className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all ${
-              input.trim() && isBackendRunning && !isLoading
+            className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all ${input.trim() && isBackendRunning && !isLoading
                 ? "bg-indigo-600 text-white hover:bg-indigo-500 shadow-md"
                 : "text-gray-500 bg-transparent"
-            }`}
+              }`}
           >
             <Send size={18} strokeWidth={2.5} />
           </button>

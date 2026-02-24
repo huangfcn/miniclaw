@@ -1,4 +1,4 @@
-import { MessageSquare, Settings as SettingsIcon, Activity, Power } from "lucide-react";
+import { MessageSquare, Settings as SettingsIcon, Activity } from "lucide-react";
 
 interface SidebarProps {
   activeTab: string;
@@ -29,11 +29,10 @@ const Sidebar = ({ activeTab, setActiveTab, isBackendRunning }: SidebarProps) =>
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-all ${
-                activeTab === tab.id
+              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-all ${activeTab === tab.id
                   ? "bg-gray-800 text-white shadow-sm"
                   : "text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
-              }`}
+                }`}
             >
               <Icon size={18} strokeWidth={2} />
               <span className="font-medium">{tab.label}</span>
