@@ -51,7 +51,7 @@ public:
     std::string conversation_api_key() const { 
         const char* s = std::getenv("OPENAI_API_KEY");
         if (s) return s;
-        return get<std::string>("conversation", "api_key", "");
+        return get<std::string>("conversation", "api_key", "XXXXXXXX");
     }
 
     // Memory

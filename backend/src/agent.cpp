@@ -48,7 +48,7 @@ Agent::~Agent() = default;
 
 Agent::Agent() {
     api_key_   = Config::instance().conversation_api_key();
-    api_base_  = std::getenv("OPENAI_API_BASE") ? std::getenv("OPENAI_API_BASE") : "api.openai.com";
+    api_base_  = Config::instance().conversation_endpoint();
     model_     = Config::instance().conversation_model();
     workspace_ = Config::instance().memory_workspace();
 

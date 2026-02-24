@@ -1,22 +1,78 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Play, Square, Activity, Terminal, Shield, Cpu, Zap, Radio, Loader2 } from "lucide-react";
+import { Play, Square, Activity, Shield, Cpu, Zap, Radio, Globe, Folder, FileCode, CheckCircle2, Box } from "lucide-react";
 
 interface MonitoringProps {
   isBackendRunning: boolean;
   onStatusChange: () => void;
 }
 
+interface EngineInfo {
+  model: string;
+  workspace: string;
+  configPath: string;
+  skills: string[];
+  fiberNodes: number;
+  uptime: string;
+}
+
 const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [engineInfo, setEngineInfo] = useState<EngineInfo>({
+    model: "N/A",
+    workspace: "N/A",
+    configPath: "N/A",
+    skills: [],
+    fiberNodes: 0,
+    uptime: "00:00:00"
+  });
+
+  useEffect(() => {
+    let interval: number;
+    if (isBackendRunning && startTime) {
+      interval = window.setInterval(() => {
+        const diff = Math.floor((Date.now() - startTime) / 1000);
+        const hours = Math.floor(diff / 3600).toString().padStart(2, "0");
+        const minutes = Math.floor((diff % 3600) / 60).toString().padStart(2, "0");
+        const seconds = (diff % 60).toString().padStart(2, "0");
+        setEngineInfo(prev => ({ ...prev, uptime: `${hours}:${minutes}:${seconds}` }));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isBackendRunning, startTime]);
 
   useEffect(() => {
     const unlisten = listen<string>("backend-log", (event) => {
-      setLogs((prev) => [...prev, event.payload].slice(-100)); // Keep last 100 logs
+      const log = event.payload;
+
+      // Basic log parsing for engine info
+      if (log.includes("Config file:")) {
+        const path = log.split("Config file:")[1].trim();
+        setEngineInfo(prev => ({ ...prev, configPath: path }));
+      }
+      if (log.includes("Memory workspace:")) {
+        const path = log.split("Memory workspace:")[1].trim();
+        setEngineInfo(prev => ({ ...prev, workspace: path }));
+      }
+      if (log.includes("Agent initialized: model=")) {
+        const modelPart = log.split("model=")[1].split(" ")[0];
+        setEngineInfo(prev => ({ ...prev, model: modelPart }));
+      }
+      if (log.includes("Available skills: [")) {
+        const skillsString = log.split("Available skills: [")[1].split("]")[0];
+        const skills = skillsString.split(", ").map(s => s.trim());
+        setEngineInfo(prev => ({ ...prev, skills }));
+      }
+      if (log.includes("Initializing FiberPool with")) {
+        const count = parseInt(log.split("with")[1].split("nodes")[0].trim());
+        setEngineInfo(prev => ({ ...prev, fiberNodes: count }));
+      }
+      if (log.includes("Starting miniclaw Backend")) {
+        setStartTime(Date.now());
+      }
     });
 
     return () => {
@@ -24,16 +80,9 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
     };
   }, []);
 
-  useEffect(() => {
-    if (logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [logs]);
-
   const startBackend = async () => {
     setIsLoading(true);
     setError(null);
-    setLogs([]); // Clear logs on start
     try {
       await invoke("start_backend");
       onStatusChange();
@@ -49,6 +98,8 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
     setError(null);
     try {
       await invoke("stop_backend");
+      setStartTime(null);
+      setEngineInfo(prev => ({ ...prev, uptime: "00:00:00" }));
       onStatusChange();
     } catch (err) {
       setError("Failed to stop backend: " + err);
@@ -58,22 +109,22 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
   };
 
   const stats = [
-    { icon: Cpu, label: "Core Utilization", value: isBackendRunning ? "24%" : "0%", color: "text-blue-500" },
-    { icon: Zap, label: "Memory Overhead", value: isBackendRunning ? "1.2 GB" : "0 GB", color: "text-amber-500" },
-    { icon: Radio, label: "Network Activity", value: isBackendRunning ? "Stable" : "Idle", color: "text-emerald-500" },
+    { icon: Cpu, label: "Active Fibers", value: isBackendRunning ? engineInfo.fiberNodes : "0", color: "text-blue-500" },
+    { icon: Zap, label: "System Uptime", value: isBackendRunning ? engineInfo.uptime : "00:00:00", color: "text-amber-500" },
+    { icon: Globe, label: "Endpoint Status", value: isBackendRunning ? "Online" : "Offline", color: "text-emerald-500" },
   ];
 
   return (
-    <div className="flex-1 p-10 bg-[#0b0b0b] space-y-10 max-w-6xl mx-auto w-full">
+    <div className="flex-1 p-10 bg-[#0b0b0b] space-y-10 max-w-6xl mx-auto w-full overflow-y-auto">
       <div className="flex items-center justify-between border-b border-gray-800 pb-8">
         <div className="space-y-1">
           <h2 className="text-4xl font-black tracking-tighter text-white flex items-center space-x-3">
             <span className="bg-indigo-600/10 text-indigo-400 p-2.5 rounded-2xl border border-indigo-600/20 shadow-lg shadow-indigo-600/5">
               <Activity size={32} />
             </span>
-            <span>Dashboard</span>
+            <span>Monitoring</span>
           </h2>
-          <p className="text-gray-400 text-sm font-semibold uppercase tracking-widest pl-1">Live Telemetry & Engine Control</p>
+          <p className="text-gray-400 text-sm font-semibold uppercase tracking-widest pl-1">Engine Deployment & Metrics</p>
         </div>
 
         <div className="flex items-center space-x-4">
@@ -93,7 +144,7 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
               className="flex items-center space-x-2 px-8 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl transition-all font-bold shadow-xl shadow-rose-600/10 hover:scale-105 active:scale-95"
             >
               <Square size={20} fill="currentColor" />
-              <span>Kill Process</span>
+              <span>Shutdown Engine</span>
             </button>
           )}
         </div>
@@ -117,40 +168,65 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
         })}
       </div>
 
-      <div className="bg-[#141414] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl">
-        <div className="p-6 border-b border-gray-800 bg-[#181818] flex items-center justify-between px-8">
-          <div className="flex items-center space-x-3">
-            <Terminal size={18} className="text-indigo-400" />
-            <h3 className="font-bold text-gray-200 tracking-wide uppercase text-xs">Runtime Diagnostics</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Left Panel: Engine Details */}
+        <div className="bg-[#141414] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+          <div className="p-6 border-b border-gray-800 bg-[#181818] flex items-center justify-between px-8 text-indigo-400 font-bold tracking-wide uppercase text-xs">
+            Engine Configuration
           </div>
-          <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${isBackendRunning ? 'bg-emerald-500' : 'bg-gray-600'}`} />
-            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-              {isBackendRunning ? 'Processing' : 'Standby'}
-            </span>
+          <div className="p-8 space-y-6">
+            <div className="flex items-start space-x-4">
+              <div className="p-3 bg-gray-900 rounded-2xl border border-gray-800">
+                <Cpu size={20} className="text-blue-500" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Active Model</div>
+                <div className="text-lg font-bold text-white">{engineInfo.model}</div>
+              </div>
+            </div>
+            <div className="flex items-start space-x-4">
+              <div className="p-3 bg-gray-900 rounded-2xl border border-gray-800">
+                <Folder size={20} className="text-amber-500" />
+              </div>
+              <div className="overflow-hidden">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Workspace Path</div>
+                <div className="text-sm font-medium text-gray-300 truncate">{engineInfo.workspace}</div>
+              </div>
+            </div>
+            <div className="flex items-start space-x-4">
+              <div className="p-3 bg-gray-900 rounded-2xl border border-gray-800">
+                <FileCode size={20} className="text-indigo-500" />
+              </div>
+              <div className="overflow-hidden">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Configuration Source</div>
+                <div className="text-sm font-medium text-gray-300 truncate">{engineInfo.configPath}</div>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="p-10 font-mono text-sm bg-[#0a0a0a] min-h-[400px] max-h-[600px] overflow-y-auto custom-scrollbar">
-          {logs.length > 0 ? (
-            <div className="space-y-1">
-              {logs.map((log, i) => (
-                <div key={i} className={`${log.includes('[ERROR]') ? 'text-rose-400' : log.includes('[SYSTEM]') ? 'text-amber-400' : 'text-emerald-500/90'}`}>
-                  {log}
-                </div>
-              ))}
-              <div ref={logEndRef} />
-            </div>
-          ) : isBackendRunning ? (
-            <div className="flex flex-col items-center justify-center h-full text-indigo-500 animate-pulse pt-20">
-              <Loader2 size={32} className="animate-spin mb-4" />
-              <p className="font-bold tracking-widest uppercase text-xs">Hooking into process streams...</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-gray-600 space-y-4 pt-10">
-              <Shield size={48} strokeWidth={1} />
-              <p className="text-center font-bold tracking-widest uppercase text-xs">System in Secure Standby Mode</p>
-            </div>
-          )}
+
+        {/* Right Panel: Skill Ecosystem */}
+        <div className="bg-[#141414] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+          <div className="p-6 border-b border-gray-800 bg-[#181818] flex items-center justify-between px-8 text-emerald-400 font-bold tracking-wide uppercase text-xs">
+            Skill Ecosystem
+          </div>
+          <div className="p-8 flex-1">
+            {engineInfo.skills.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {engineInfo.skills.map(skill => (
+                  <div key={skill} className="flex items-center space-x-2 p-3 bg-gray-900 border border-gray-800 rounded-xl hover:border-emerald-500/30 transition-colors group">
+                    <CheckCircle2 size={14} className="text-emerald-500 opacity-60 group-hover:opacity-100" />
+                    <span className="text-xs font-medium text-gray-300">{skill}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-600 space-y-3 py-10">
+                <Box size={40} className="opacity-20" />
+                <p className="text-[10px] font-bold uppercase tracking-widest">No active skills discovered</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -160,12 +236,18 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
           <span>{error}</span>
         </div>
       )}
+
+      {/* Shutdown Notice */}
+      {!isBackendRunning && !isLoading && (
+        <div className="flex items-center justify-center p-12 border-2 border-dashed border-gray-800 rounded-[2.5rem] bg-gray-900/10">
+          <div className="text-center space-y-4">
+            <Shield size={48} className="mx-auto text-gray-700" strokeWidth={1} />
+            <p className="text-gray-500 font-bold tracking-widest uppercase text-xs">Engine offline. Launch to activate telemetry.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-// Add this to your global CSS if not present
-// .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-// .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
 
 export default Monitoring;
