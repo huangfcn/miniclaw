@@ -10,7 +10,9 @@ conversation:
 
 memory:
   workspace: "."
-  l1_to_l2_threshold: 500 # messages before L1 -> L2 distillation
+  l1_distillation_trigger: "message_count"   # "message_count" or "token_count"
+  l1_to_l2_threshold: 500                    # messages before L1 -> L2 distillation
+  l1_token_threshold: 5000                   # New tokens since last distill to trigger L1->L2
   compaction_threshold: 0.8 # trigger proactive flush at 80% context
   time: "13:00" # trigger L2 -> L3 distillation after 1:00 PM
 

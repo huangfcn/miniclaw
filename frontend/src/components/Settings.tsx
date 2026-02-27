@@ -1,41 +1,41 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Save, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
+import { useAppContext } from "../contexts/AppContext";
 
 const Settings = () => {
-  const [config, setConfig] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const { appState, setAppState } = useAppContext();
+  const { config, isLoading, error, saveStatus } = appState.settings;
 
   const loadConfig = async () => {
-    setIsLoading(true);
-    setError(null);
+    setAppState(prev => ({ ...prev, settings: { ...prev.settings, isLoading: true, error: null } }));
     try {
       const data = await invoke("read_config");
-      setConfig(data as string);
+      setAppState(prev => ({ ...prev, settings: { ...prev.settings, config: data as string } }));
     } catch (err) {
       console.error(err);
-      setError("Failed to load config.yaml. Make sure the backend directory exists.");
+      setAppState(prev => ({ ...prev, settings: { ...prev.settings, error: "Failed to load config.yaml. Make sure the backend directory exists." } }));
     } finally {
-      setIsLoading(false);
+      setAppState(prev => ({ ...prev, settings: { ...prev.settings, isLoading: false } }));
     }
   };
 
   const handleSave = async () => {
-    setSaveStatus("saving");
+    setAppState(prev => ({ ...prev, settings: { ...prev.settings, saveStatus: "saving" } }));
     try {
       await invoke("save_config", { content: config });
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      setAppState(prev => ({ ...prev, settings: { ...prev.settings, saveStatus: "saved" } }));
+      setTimeout(() => setAppState(prev => ({ ...prev, settings: { ...prev.settings, saveStatus: "idle" } })), 2000);
     } catch (err) {
       console.error(err);
-      setSaveStatus("error");
+      setAppState(prev => ({ ...prev, settings: { ...prev.settings, saveStatus: "error" } }));
     }
   };
 
   useEffect(() => {
-    loadConfig();
+    if (!config) { // Only load if config is not already in the context
+      loadConfig();
+    }
   }, []);
 
   return (
@@ -78,7 +78,7 @@ const Settings = () => {
         <textarea
           className="w-full h-full bg-[#141414] border border-gray-800 focus:border-indigo-500 rounded-2xl p-6 font-mono text-sm leading-relaxed text-indigo-100/90 outline-none transition-all shadow-xl resize-none group-hover:bg-[#181818]"
           value={config}
-          onChange={(e) => setConfig(e.target.value)}
+          onChange={(e) => setAppState(prev => ({ ...prev, settings: { ...prev.settings, config: e.target.value } }))}
           placeholder="# Loading configuration..."
           spellCheck={false}
         />

@@ -1,34 +1,17 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Play, Square, Activity, Shield, Cpu, Zap, Radio, Globe, Folder, FileCode, CheckCircle2, Box } from "lucide-react";
+import { Play, Square, Activity, Shield, Cpu, Zap, Globe, Folder, FileCode, CheckCircle2, Box } from "lucide-react";
+import { useAppContext } from "../contexts/AppContext";
 
 interface MonitoringProps {
   isBackendRunning: boolean;
   onStatusChange: () => void;
 }
 
-interface EngineInfo {
-  model: string;
-  workspace: string;
-  configPath: string;
-  skills: string[];
-  fiberNodes: number;
-  uptime: string;
-}
-
 const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [startTime, setStartTime] = useState<number | null>(null);
-  const [engineInfo, setEngineInfo] = useState<EngineInfo>({
-    model: "N/A",
-    workspace: "N/A",
-    configPath: "N/A",
-    skills: [],
-    fiberNodes: 0,
-    uptime: "00:00:00"
-  });
+  const { appState, setAppState } = useAppContext();
+  const { isLoading, error, startTime, engineInfo } = appState.monitoring;
 
   useEffect(() => {
     let interval: number;
@@ -38,7 +21,7 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
         const hours = Math.floor(diff / 3600).toString().padStart(2, "0");
         const minutes = Math.floor((diff % 3600) / 60).toString().padStart(2, "0");
         const seconds = (diff % 60).toString().padStart(2, "0");
-        setEngineInfo(prev => ({ ...prev, uptime: `${hours}:${minutes}:${seconds}` }));
+        setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, engineInfo: { ...prev.monitoring.engineInfo, uptime: `${hours}:${minutes}:${seconds}` } } }));
       }, 1000);
     }
     return () => clearInterval(interval);
@@ -51,27 +34,27 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
       // Basic log parsing for engine info
       if (log.includes("Config file:")) {
         const path = log.split("Config file:")[1].trim();
-        setEngineInfo(prev => ({ ...prev, configPath: path }));
+        setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, engineInfo: { ...prev.monitoring.engineInfo, configPath: path } } }));
       }
       if (log.includes("Memory workspace:")) {
         const path = log.split("Memory workspace:")[1].trim();
-        setEngineInfo(prev => ({ ...prev, workspace: path }));
+        setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, engineInfo: { ...prev.monitoring.engineInfo, workspace: path } } }));
       }
       if (log.includes("Agent initialized: model=")) {
         const modelPart = log.split("model=")[1].split(" ")[0];
-        setEngineInfo(prev => ({ ...prev, model: modelPart }));
+        setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, engineInfo: { ...prev.monitoring.engineInfo, model: modelPart } } }));
       }
       if (log.includes("Available skills: [")) {
         const skillsString = log.split("Available skills: [")[1].split("]")[0];
         const skills = skillsString.split(", ").map(s => s.trim());
-        setEngineInfo(prev => ({ ...prev, skills }));
+        setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, engineInfo: { ...prev.monitoring.engineInfo, skills } } }));
       }
       if (log.includes("Initializing FiberPool with")) {
         const count = parseInt(log.split("with")[1].split("nodes")[0].trim());
-        setEngineInfo(prev => ({ ...prev, fiberNodes: count }));
+        setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, engineInfo: { ...prev.monitoring.engineInfo, fiberNodes: count } } }));
       }
       if (log.includes("Starting miniclaw Backend")) {
-        setStartTime(Date.now());
+        setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, startTime: Date.now() } }));
       }
     });
 
@@ -81,30 +64,27 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
   }, []);
 
   const startBackend = async () => {
-    setIsLoading(true);
-    setError(null);
+    setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, isLoading: true, error: null } }));
     try {
       await invoke("start_backend");
       onStatusChange();
     } catch (err) {
-      setError("Failed to start backend: " + err);
+      setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, error: "Failed to start backend: " + err } }));
     } finally {
-      setIsLoading(false);
+      setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, isLoading: false } }));
     }
   };
 
   const stopBackend = async () => {
-    setIsLoading(true);
-    setError(null);
+    setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, isLoading: true, error: null } }));
     try {
       await invoke("stop_backend");
-      setStartTime(null);
-      setEngineInfo(prev => ({ ...prev, uptime: "00:00:00" }));
+      setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, startTime: null, engineInfo: { ...prev.monitoring.engineInfo, uptime: "00:00:00" } } }));
       onStatusChange();
     } catch (err) {
-      setError("Failed to stop backend: " + err);
+      setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, error: "Failed to stop backend: " + err } }));
     } finally {
-      setIsLoading(false);
+      setAppState(prev => ({ ...prev, monitoring: { ...prev.monitoring, isLoading: false } }));
     }
   };
 

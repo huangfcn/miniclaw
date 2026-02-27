@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import { Send, User, Bot, AlertTriangle, Loader2 } from "lucide-react";
 import axios from "axios";
+import { useAppContext } from "../contexts/AppContext";
 
 interface Message {
   role: "user" | "bot";
@@ -8,9 +9,8 @@ interface Message {
 }
 
 const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const { appState, setAppState } = useAppContext();
+  const { messages, input, isLoading } = appState.chat;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,9 +23,15 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
     if (!input.trim() || !isBackendRunning || isLoading) return;
 
     const userMessage: Message = { role: "user", content: input };
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
+    setAppState(prev => ({
+      ...prev,
+      chat: {
+        ...prev.chat,
+        messages: [...prev.chat.messages, userMessage],
+        input: "",
+        isLoading: true
+      }
+    }));
 
     try {
       // The miniclaw backend (C++) listens on port 9000 by default (from config.yaml)
@@ -61,15 +67,39 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
       }
 
       if (botMessage.content) {
-        setMessages((prev) => [...prev, botMessage]);
+        setAppState(prev => ({
+          ...prev,
+          chat: {
+            ...prev.chat,
+            messages: [...prev.chat.messages, botMessage]
+          }
+        }));
       } else {
-        setMessages((prev) => [...prev, { role: "bot", content: "Error: No response content." }]);
+        setAppState(prev => ({
+          ...prev,
+          chat: {
+            ...prev.chat,
+            messages: [...prev.chat.messages, { role: "bot", content: "Error: No response content." }]
+          }
+        }));
       }
     } catch (error) {
       console.error("Chat error:", error);
-      setMessages((prev) => [...prev, { role: "bot", content: "Error: Failed to connect to the backend engine." }]);
+      setAppState(prev => ({
+        ...prev,
+        chat: {
+          ...prev.chat,
+          messages: [...prev.chat.messages, { role: "bot", content: "Error: Failed to connect to the backend engine." }]
+        }
+      }));
     } finally {
-      setIsLoading(false);
+      setAppState(prev => ({
+        ...prev,
+        chat: {
+          ...prev.chat,
+          isLoading: false
+        }
+      }));
     }
   };
 
@@ -115,7 +145,7 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
             placeholder={isBackendRunning ? "Message miniclaw..." : "Backend offline..."}
             value={input}
             disabled={!isBackendRunning || isLoading}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setAppState(prev => ({ ...prev, chat: { ...prev.chat, input: e.target.value } }))}
             onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
           />
           <button

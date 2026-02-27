@@ -27,6 +27,7 @@ struct Session {
     std::string metadata = "{}"; // Store raw JSON string
     int last_consolidated = 0;
     std::string last_consolidation_date;
+    size_t last_distilled_token_count = 0; // Token count at last distillation
 
     void add_message(const std::string& role, const std::string& content) {
         messages.push_back({role, content});
@@ -55,14 +56,7 @@ class SessionManager {
 public:
     explicit SessionManager(const std::string& workspace)
         : workspace_(workspace) {
-        // sessions_dir_ = fs::path(workspace) / "sessions";
-        // Mirrors nanobot's ~/.nanobot/sessions but using ~/.miniclaw/sessions
-        const char* home = std::getenv("HOME");
-        if (home) {
-            sessions_dir_ = fs::path(home) / ".miniclaw" / "sessions";
-        } else {
-            sessions_dir_ = fs::path(workspace) / "sessions";
-        }
+        sessions_dir_ = fs::path(workspace) / "sessions";
         fs::create_directories(sessions_dir_);
     }
 
@@ -92,7 +86,8 @@ public:
                                "\",\"updated_at\":\"" + session.updated_at + 
                                "\",\"metadata\":" + session.metadata + 
                                ",\"last_consolidated\":" + std::to_string(session.last_consolidated) + 
-                               ",\"last_consolidation_date\":\"" + session.last_consolidation_date + "\"}";
+                               ",\"last_consolidation_date\":\"" + session.last_consolidation_date + 
+                               "\",\"last_distilled_token_count\":" + std::to_string(session.last_distilled_token_count) + "}";
         f << meta_line << "\n";
 
         // Message lines
@@ -154,6 +149,10 @@ private:
                     std::string_view date_sv;
                     if (!data["last_consolidation_date"].get(date_sv)) {
                         session.last_consolidation_date = std::string(date_sv);
+                    }
+                    int64_t token_count;
+                    if (!data["last_distilled_token_count"].get(token_count)) {
+                        session.last_distilled_token_count = (size_t)token_count;
                     }
                 } else {
                     std::string_view role_sv, content_sv;

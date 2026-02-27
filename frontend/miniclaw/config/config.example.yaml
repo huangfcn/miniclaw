@@ -11,6 +11,8 @@ conversation:
 memory:
   workspace: "."
   l1_to_l2_threshold: 500
+  l1_distillation_trigger: "message_count"  # "message_count" or "token_count"
+  l1_token_threshold: 10000                  # New tokens since last distill to trigger L1->L2
   compaction_threshold: 0.8
   time: "13:00"
 

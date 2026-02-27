@@ -242,8 +242,16 @@ public:
                 size_t estimated_tokens = session.estimate_tokens();
                 size_t token_limit = Config::instance().memory_context_window();
                 float floor_threshold = Config::instance().memory_compaction_threshold();
-                
-                bool threshold_hit = (session.messages.size() - session.last_consolidated > Config::instance().memory_l1_to_l2_threshold());
+
+                bool threshold_hit = false;
+                std::string trigger_strategy = Config::instance().memory_l1_distillation_trigger();
+                if (trigger_strategy == "token_count") {
+                    int token_trigger_threshold = Config::instance().memory_l1_token_threshold();
+                    threshold_hit = (estimated_tokens - session.last_distilled_token_count > token_trigger_threshold);
+                } else { // "message_count"
+                    threshold_hit = (session.messages.size() - session.last_consolidated > Config::instance().memory_l1_to_l2_threshold());
+                }
+
                 bool context_near_full = (estimated_tokens > token_limit * floor_threshold);
 
                 if (threshold_hit || context_near_full) {
@@ -326,6 +334,7 @@ public:
         if (!result.content.empty()) {
             context_.memory().append_daily_log(result.content);
             session.last_consolidated = end;
+            session.last_distilled_token_count = session.estimate_tokens();
             spdlog::info("L1 -> L2 distillation completed");
         }
     }

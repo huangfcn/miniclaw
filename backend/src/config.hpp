@@ -66,6 +66,8 @@ public:
         return std::filesystem::absolute(ws).lexically_normal().string();
     }
     int memory_l1_to_l2_threshold() const { return get("memory", "l1_to_l2_threshold", 30); }
+    std::string memory_l1_distillation_trigger() const { return get<std::string>("memory", "l1_distillation_trigger", "message_count"); }
+    int memory_l1_token_threshold() const { return get("memory", "l1_token_threshold", 10000); }
     std::string memory_distillation_time() const { return get<std::string>("memory", "time", "13:00"); }
     int memory_context_window() const { return get("memory", "context_window", 128000); }
     float memory_compaction_threshold() const { return get("memory", "compaction_threshold", 0.8f); }

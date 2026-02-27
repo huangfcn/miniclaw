@@ -4,8 +4,7 @@ import Sidebar from "./components/Sidebar";
 import Chat from "./components/Chat";
 import Settings from "./components/Settings";
 import Monitoring from "./components/Monitoring";
-// No icons used in App.tsx
-
+import { AppProvider } from "./contexts/AppContext";
 
 function App() {
   const [activeTab, setActiveTab] = useState("chat");
@@ -34,11 +33,13 @@ function App() {
         isBackendRunning={isBackendRunning}
       />
       
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {activeTab === "chat" && <Chat isBackendRunning={isBackendRunning} />}
-        {activeTab === "monitoring" && <Monitoring isBackendRunning={isBackendRunning} onStatusChange={checkStatus} />}
-        {activeTab === "settings" && <Settings />}
-      </main>
+      <AppProvider>
+        <main className="flex-1 flex flex-col overflow-hidden">
+          {activeTab === "chat" && <Chat isBackendRunning={isBackendRunning} />}
+          {activeTab === "monitoring" && <Monitoring isBackendRunning={isBackendRunning} onStatusChange={checkStatus} />}
+          {activeTab === "settings" && <Settings />}
+        </main>
+      </AppProvider>
     </div>
   );
 }
