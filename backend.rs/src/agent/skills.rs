@@ -43,11 +43,11 @@ impl SkillsLoader {
                         let meta = self.parse_frontmatter(&content);
                         
                         let description = meta.get("description").cloned().unwrap_or_else(|| name.clone());
-                        let always_load = meta.get("always").map(|v| v == "true").unwrap_or(false);
+                        let always_load = meta.get("always").map(|v| v == "true" || v == "\"true\"").unwrap_or(false);
 
                         result.push(SkillInfo {
                             name,
-                            path: skill_md,
+                            path: fs::canonicalize(&path).unwrap_or(path),
                             description,
                             always_load,
                         });
@@ -78,11 +78,15 @@ impl SkillsLoader {
 
     pub fn load_always_skills(&self) -> String {
         let mut result = String::new();
+        let skills_path_str = self.skills_dir.to_string_lossy().to_string();
+
         for s in self.list_skills() {
             if s.always_load {
                 if let Ok(content) = fs::read_to_string(&s.path) {
                     let stripped = self.strip_frontmatter(&content);
-                    result.push_str(&format!("### Skill: {}\n\n{}\n\n---\n\n", s.name, stripped));
+                    // Replace {{skills_path}} with absolute path to skills directory
+                    let resolved = stripped.replace("{{skills_path}}", &skills_path_str);
+                    result.push_str(&format!("### Skill: {}\n\n{}\n\n---\n\n", s.name, resolved));
                 }
             }
         }

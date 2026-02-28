@@ -28,7 +28,7 @@ impl SubagentManager {
             
             // In a real subagent we might want to log its progress to the same session or a sub-session
             // For now, we'll just run it and announce completion.
-            if let Err(e) = agent.run(task.clone(), format!("subagent:{}", sub_task_id), tx).await {
+            if let Err(e) = agent.run(task.clone(), format!("subagent:{}", sub_task_id), tx, None, None).await {
                 eprintln!("Subagent [{}] error: {}", sub_task_id, e);
             }
 

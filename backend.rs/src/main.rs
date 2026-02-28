@@ -14,6 +14,8 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tracing_subscriber::prelude::*;
+use tracing_appender::non_blocking;
+use std::path::Path;
 use tower_http::cors::CorsLayer;
 
 use crate::agent::{Agent, AgentEvent};
@@ -30,12 +32,23 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
+    let workspace = std::env::var("WORKSPACE_DIR").unwrap_or_else(|_| ".".to_string());
+    let workspace_path = Path::new(&workspace).canonicalize().unwrap_or_else(|_| workspace.clone().into());
+    
+    // Configure logging
+    let file_appender = tracing_appender::rolling::never(&workspace_path, "backend.log");
+    let (non_blocking, _guard) = non_blocking(file_appender);
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
         ))
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer()) // Console
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking)) // File
         .init();
+
+    tracing::info!("Starting miniclaw Backend (Rust)");
+    tracing::info!("Workspace: {}", workspace_path.display());
 
     let agent = Arc::new(Agent::new());
     let subagent_mgr = Arc::new(crate::agent::SubagentManager::new(Arc::clone(&agent)));
@@ -69,7 +82,7 @@ async fn chat_handler(
     let session_id = payload.session_id;
 
     tokio::spawn(async move {
-        if let Err(e) = agent.run(message, session_id, tx).await {
+        if let Err(e) = agent.run(message, session_id, tx, None, None).await {
             tracing::error!("Agent run error: {}", e);
         }
     });

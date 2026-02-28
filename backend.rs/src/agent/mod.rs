@@ -31,7 +31,9 @@ pub struct AgentEvent {
     pub r#type: String,
     pub content: String,
 }
-
+pub struct Agent {
+    api_key: String,
+    api_base: String,
     model: String,
     #[allow(dead_code)]
     workspace: String,
@@ -89,6 +91,8 @@ impl Agent {
         message: String,
         session_id: String,
         tx: mpsc::Sender<AgentEvent>,
+        channel: Option<String>,
+        chat_id: Option<String>,
     ) -> Result<()> {
         let mut session = self.sessions.get_or_create(&session_id).await;
         
@@ -98,7 +102,7 @@ impl Agent {
         let mut history = vec![
             Message {
                 role: "system".to_string(),
-                content: Some(self.build_system_prompt()),
+                content: Some(self.build_system_prompt(channel.as_deref(), chat_id.as_deref())),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -221,17 +225,75 @@ impl Agent {
         Ok(())
     }
 
-    fn build_system_prompt(&self) -> String {
-        let mem_ctx = self.memory.get_memory_context();
-        let skills_summary = self.skills.build_skills_summary();
-        let always_skills = self.skills.load_always_skills();
+    fn build_system_prompt(&self, channel: Option<&str>, chat_id: Option<&str>) -> String {
+        let mut parts = Vec::new();
 
+        // 1. Identity Header
+        parts.push(self.get_identity_header());
+
+        // 2. Bootstrap Files
+        let bootstrap = self.load_bootstrap_files();
+        if !bootstrap.is_empty() {
+            parts.push(bootstrap);
+        }
+
+        // 3. Memory Context
+        let mem_ctx = self.memory.get_memory_context();
+        if !mem_ctx.is_empty() {
+            parts.push(format!("# Memory\n\n{}", mem_ctx));
+        }
+
+        // 4. Always Skills
+        let always_skills = self.skills.load_always_skills();
+        if !always_skills.is_empty() {
+            parts.push(format!("# Active Skills\n\n{}", always_skills));
+        }
+
+        // 5. Skills Summary
+        let skills_summary = self.skills.build_skills_summary();
+        if !skills_summary.is_empty() {
+            parts.push(format!(
+                "# Available Skills\n\nThe following skills extend your capabilities. To use a skill, read its SKILL.md file with `read_file`.\n\n{}",
+                skills_summary
+            ));
+        }
+
+        let mut prompt = parts.join("\n\n---\n\n");
+
+        if let (Some(ch), Some(id)) = (channel, chat_id) {
+            prompt.push_str(&format!("\n\n## Current Session\nChannel: {}\nChat ID: {}", ch, id));
+        }
+
+        prompt
+    }
+
+    fn get_identity_header(&self) -> String {
+        let now = Utc::now();
+        let time_str = now.format("%Y-%m-%d %H:%M (%A)").to_string();
+        let ws_path = std::path::Path::new(&self.workspace).canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from(&self.workspace));
+        
         format!(
-            "You are a powerful AI agent.\n\nMemory Context:\n{}\n\nSkills Available:\n{}\n\n{}\nPlease use the above memory and context to inform your responses.",
-            mem_ctx,
-            skills_summary,
-            always_skills
+            "# miniclaw 🦞\n\nYou are miniclaw, a high-performance personal AI assistant.\n\n## Current Time\n{}\n\n## Workspace\nYour workspace is at: {}\n- Long-term memory: memory/MEMORY.md\n- History log: memory/HISTORY.md\n- Skills: skills/\n\nAlways be helpful, accurate, and concise.\nWhen remembering something important, write to memory/MEMORY.md\nTo recall past events, use exec to grep memory/HISTORY.md",
+            time_str,
+            ws_path.to_string_lossy()
         )
+    }
+
+    fn load_bootstrap_files(&self) -> String {
+        let files = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"];
+        let mut parts = Vec::new();
+
+        for fname in files {
+            let p = std::path::Path::new(&self.workspace).join(fname);
+            if p.exists() {
+                if let Ok(content) = std::fs::read_to_string(p) {
+                    parts.push(format!("## {}\n\n{}", fname, content));
+                }
+            }
+        }
+
+        parts.join("\n\n")
     }
 
     async fn call_llm(
