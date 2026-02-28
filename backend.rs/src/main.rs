@@ -89,7 +89,24 @@ async fn main() {
     tracing::info!("Starting miniclaw Rust Backend on {}", addr);
     
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let mut last_ctrl_c = None;
+            loop {
+                tokio::signal::ctrl_c().await.expect("failed to listen for event");
+                let now = tokio::time::Instant::now();
+                if let Some(last) = last_ctrl_c {
+                    if now.duration_since(last).as_secs_f32() <= 1.0 {
+                        tracing::info!("\nReceived second Ctrl-C within 1s, initiating graceful shutdown...");
+                        break;
+                    }
+                }
+                last_ctrl_c = Some(now);
+                tracing::info!("\nPress Ctrl-C again within 1s to gracefully exit.");
+            }
+        })
+        .await
+        .unwrap();
 }
 
 // Removed resolve_workspace_path as it's now handled by Config

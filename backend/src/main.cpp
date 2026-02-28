@@ -4,7 +4,6 @@
 namespace fs = std::filesystem;
 #include "agent/shutdown.hpp"
 #include <condition_variable>
-#include <csignal>
 #include <curl/curl.h>
 #include <fiber.h>
 #include <spdlog/spdlog.h>
@@ -14,30 +13,57 @@ namespace fs = std::filesystem;
 #include "agent/context.hpp"
 #include "config.hpp"
 #include <atomic>
+#include <chrono>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <unistd.h>
 
-
 // (Moved to shutdown.cpp)
 
-static std::atomic<time_t> last_ctrl_c_time{0};
-void signal_handler(int signum) {
-  time_t now = time(NULL);
-  time_t last = last_ctrl_c_time.exchange(now);
+static std::atomic<long long> last_ctrl_c_timestamp{0};
 
-  if (now - last <= 1 && last != 0) {
-    const char msg[] =
-        "\nReceived second Ctrl-C within 1s, forcing immediate exit!\n";
-    write(STDERR_FILENO, msg, sizeof(msg) - 1);
-    _exit(signum);
+#if defined(_WIN32)
+#include <windows.h>
+BOOL WINAPI console_handler(DWORD ctrl_type) {
+  if (ctrl_type == CTRL_C_EVENT) {
+    auto now = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  now.time_since_epoch())
+                  .count();
+    auto last = last_ctrl_c_timestamp.exchange(ms);
+
+    if (ms - last <= 1000 && last != 0) {
+      const char msg[] = "\nReceived second Ctrl-C within 1s, initiating "
+                         "graceful shutdown...\n";
+      write(STDERR_FILENO, msg, sizeof(msg) - 1);
+      miniclaw_trigger_shutdown();
+      return TRUE;
+    } else {
+      const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit.\n";
+      write(STDERR_FILENO, msg, sizeof(msg) - 1);
+      return TRUE;
+    }
   }
+  return FALSE;
+}
+#endif
 
-  const char msg[] = "\nReceived Ctrl-C, initiating graceful shutdown... "
-                     "(Press Ctrl-C again within 1s to force exit)\n";
-  write(STDERR_FILENO, msg, sizeof(msg) - 1);
+void signal_handler(int signum) {
+  auto now = std::chrono::steady_clock::now();
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch())
+                .count();
+  auto last = last_ctrl_c_timestamp.exchange(ms);
 
-  miniclaw_trigger_shutdown();
+  if (ms - last <= 1000 && last != 0) {
+    const char msg[] =
+        "\nReceived second Ctrl-C within 1s, initiating graceful shutdown...\n";
+    write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    miniclaw_trigger_shutdown();
+  } else {
+    const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit.\n";
+    write(STDERR_FILENO, msg, sizeof(msg) - 1);
+  }
 }
 
 int main() {
@@ -129,7 +155,11 @@ int main() {
   spdlog::info("Backend running on port {} (Non-blocking Fiber Nodes)", port);
 
   // Register signal handler for Ctrl-C
+#if defined(_WIN32)
+  SetConsoleCtrlHandler(console_handler, TRUE);
+#else
   std::signal(SIGINT, signal_handler);
+#endif
 
   // Keep the main thread alive
   miniclaw_wait_for_shutdown();
