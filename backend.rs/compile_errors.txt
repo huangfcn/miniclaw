@@ -1,0 +1,218 @@
+    Checking miniclaw_rust v0.1.0 (D:\workspace\miniclaw\backend.rs)
+error[E0252]: the name `mpsc` is defined multiple times
+ --> src\agent\mod.rs:7:5
+  |
+3 | use tokio::sync::mpsc;
+  |     ----------------- previous import of the module `mpsc` here
+...
+7 | use tokio::sync::mpsc;
+  |     ^^^^^^^^^^^^^^^^^ `mpsc` reimported here
+  |
+  = note: `mpsc` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `TerminalTool` is defined multiple times
+ --> src\agent\mod.rs:9:26
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                          ------------ previous import of the type `TerminalTool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                          ^^^^^^^^^^^^--
+  |                          |
+  |                          `TerminalTool` reimported here
+  |                          help: remove unnecessary import
+  |
+  = note: `TerminalTool` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `ReadFileTool` is defined multiple times
+ --> src\agent\mod.rs:9:40
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                        ------------ previous import of the type `ReadFileTool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                        ^^^^^^^^^^^^--
+  |                                        |
+  |                                        `ReadFileTool` reimported here
+  |                                        help: remove unnecessary import
+  |
+  = note: `ReadFileTool` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `WriteFileTool` is defined multiple times
+ --> src\agent\mod.rs:9:54
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                      ------------- previous import of the type `WriteFileTool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                      ^^^^^^^^^^^^^--
+  |                                                      |
+  |                                                      `WriteFileTool` reimported here
+  |                                                      help: remove unnecessary import
+  |
+  = note: `WriteFileTool` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `WebSearchTool` is defined multiple times
+ --> src\agent\mod.rs:9:69
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                     ------------- previous import of the type `WebSearchTool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                     ^^^^^^^^^^^^^--
+  |                                                                     |
+  |                                                                     `WebSearchTool` reimported here
+  |                                                                     help: remove unnecessary import
+  |
+  = note: `WebSearchTool` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `WebFetchTool` is defined multiple times
+ --> src\agent\mod.rs:9:84
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                                    ------------ previous import of the type `WebFetchTool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                                    ^^^^^^^^^^^^--
+  |                                                                                    |
+  |                                                                                    `WebFetchTool` reimported here
+  |                                                                                    help: remove unnecessary import
+  |
+  = note: `WebFetchTool` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `ListDirTool` is defined multiple times
+ --> src\agent\mod.rs:9:98
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                                                  ----------- previous import of the type `ListDirTool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                                                  ^^^^^^^^^^^--
+  |                                                                                                  |
+  |                                                                                                  `ListDirTool` reimported here
+  |                                                                                                  help: remove unnecessary import
+  |
+  = note: `ListDirTool` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `EditFileTool` is defined multiple times
+ --> src\agent\mod.rs:9:111
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                                                               ------------ previous import of the type `EditFileTool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                                                                                                               ^^^^^^^^^^^^ `EditFileTool` reimported here
+  |
+  = note: `EditFileTool` must be defined only once in the type namespace of this module
+
+error[E0252]: the name `Tool` is defined multiple times
+ --> src\agent\mod.rs:9:20
+  |
+5 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                    ---- previous import of the trait `Tool` here
+...
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                    ^^^^--
+  |                    |
+  |                    `Tool` reimported here
+  |                    help: remove unnecessary import
+  |
+  = note: `Tool` must be defined only once in the type namespace of this module
+
+error: cannot determine resolution for the import
+ --> src\agent\mod.rs:4:14
+  |
+4 | use anyhow::{Result, anyhow};
+  |              ^^^^^^
+
+error: cannot determine resolution for the import
+ --> src\agent\mod.rs:4:22
+  |
+4 | use anyhow::{Result, anyhow};
+  |                      ^^^^^^
+
+error[E0432]: unresolved imports `anyhow::Result`, `anyhow::anyhow`, `anyhow::Result`, `anyhow::anyhow`
+ --> src\agent\mod.rs:4:14
+  |
+4 | use anyhow::{Result, anyhow};
+  |              ^^^^^^  ^^^^^^
+...
+8 | use anyhow::{Result, anyhow};
+  |              ^^^^^^  ^^^^^^
+
+warning: unused import: `tokio::sync::mpsc`
+ --> src\agent\mod.rs:7:5
+  |
+7 | use tokio::sync::mpsc;
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `EditFileTool`, `ListDirTool`, `ReadFileTool`, `TerminalTool`, `Tool`, `WebFetchTool`, `WebSearchTool`, and `WriteFileTool`
+ --> src\agent\mod.rs:9:20
+  |
+9 | use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+  |                    ^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused import: `Session`
+ --> src\memory\mod.rs:5:19
+  |
+5 | pub use session::{Session, SessionManager};
+  |                   ^^^^^^^
+
+warning: unused imports: `MemoryIndex` and `SearchResult`
+ --> src\memory\mod.rs:6:17
+  |
+6 | pub use index::{MemoryIndex, SearchResult};
+  |                 ^^^^^^^^^^^  ^^^^^^^^^^^^
+
+error[E0282]: type annotations needed for `(_, _)`
+   --> src\agent\mod.rs:117:17
+    |
+117 |             let (response_content, tool_calls) = self.call_llm(&history, tx.clone()).await?;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+118 |             let has_tools = !tool_calls.is_empty();
+    |                              ---------- type must be known at this point
+    |
+help: consider giving this pattern a type, where the placeholders `_` are specified
+    |
+117 |             let (response_content, tool_calls): (_, _) = self.call_llm(&history, tx.clone()).await?;
+    |                                               ++++++++
+
+error[E0282]: type annotations needed for `(_, {type error})`
+   --> src\agent\mod.rs:117:17
+    |
+117 |             let (response_content, tool_calls) = self.call_llm(&history, tx.clone()).await?;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+122 |                 content: if response_content.is_empty() { None } else { Some(response_content.clone()) },
+    |                             ---------------- type must be known at this point
+    |
+help: consider giving this pattern a type, where the placeholders `_` are specified
+    |
+117 |             let (response_content, tool_calls): (_, _) = self.call_llm(&history, tx.clone()).await?;
+    |                                               ++++++++
+
+error[E0308]: mismatched types
+    --> src\memory\session.rs:127:80
+     |
+ 127 | ...                   if let Ok(msg) = serde_json::from_value::<Message>(&data) {
+     |                                        --------------------------------- ^^^^^ expected `Value`, found `&Value`
+     |                                        |
+     |                                        arguments to this function are incorrect
+     |
+note: function defined here
+    --> C:\Users\feng huang\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde_json-1.0.149\src\value\mod.rs:1037:8
+     |
+1037 | pub fn from_value<T>(value: Value) -> Result<T, Error>
+     |        ^^^^^^^^^^
+help: consider removing the borrow
+     |
+ 127 -                             if let Ok(msg) = serde_json::from_value::<Message>(&data) {
+ 127 +                             if let Ok(msg) = serde_json::from_value::<Message>(data) {
+     |
+
+Some errors have detailed explanations: E0252, E0282, E0308, E0432.
+For more information about an error, try `rustc --explain E0252`.
+warning: `miniclaw_rust` (bin "miniclaw_rust") generated 4 warnings
+error: could not compile `miniclaw_rust` (bin "miniclaw_rust") due to 15 previous errors; 4 warnings emitted

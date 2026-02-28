@@ -37,8 +37,12 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let agent = Arc::new(Agent::new());
+    let subagent_mgr = Arc::new(crate::agent::SubagentManager::new(Arc::clone(&agent)));
+    agent.set_subagents(subagent_mgr);
+
     let state = Arc::new(AppState {
-        agent: Arc::new(Agent::new()),
+        agent,
     });
 
     let app = Router::new()
