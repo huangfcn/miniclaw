@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State, Emitter};
+use tauri::{AppHandle, State, Emitter, Manager};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 use std::sync::{Arc, Mutex};
@@ -10,6 +10,19 @@ struct BackendState {
     child: Arc<Mutex<Option<CommandChild>>>,
 }
 
+fn get_miniclaw_path() -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            return PathBuf::from(profile).join(".miniclaw");
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(".miniclaw");
+    }
+    PathBuf::from(".miniclaw")
+}
+
 #[tauri::command]
 async fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result<(), String> {
     let mut child_guard = state.child.lock().unwrap();
@@ -19,39 +32,23 @@ async fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result
 
     println!("Current Working Directory: {:?}", std::env::current_dir().unwrap_or_default());
 
-    let app_handle = app.clone();
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let miniclaw_path = get_miniclaw_path();
     
-    // In dev, we might still want to use the local folder if requested, 
-    // but the backend now bootstraps itself in AppData by default.
-    // We will force WORKSPACE_DIR to AppData for production readiness.
-    fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+    // Ensure the system local folder exists
+    fs::create_dir_all(&miniclaw_path).map_err(|e| e.to_string())?;
 
-    let working_dir = if cfg!(debug_assertions) {
-        PathBuf::from("../miniclaw")
-    } else {
-        app_data_dir.clone()
-    };
-
-    let binary_name = if cfg!(windows) { "miniclaw.exe" } else { "miniclaw" };
-    // Assuming binary is in the 'bin' folder relative to current exe in dev, 
-    // or bundled as a sidecar in production.
-    let binary_path = if cfg!(debug_assertions) {
-        PathBuf::from("../miniclaw/bin").join(binary_name)
-    } else {
-        // In production, we'd use sidecar, but the user is currently using a custom bin path
-        PathBuf::from("../miniclaw/bin").join(binary_name) 
-    };
-
-    println!("Starting backend from: {:?}", binary_path);
-    println!("Workspace directory (AppData): {:?}", app_data_dir);
-
-    // Use command instead of sidecar to run from the specific bin folder
-    let cmd = app.shell().command(binary_path.to_string_lossy().to_string())
-        .env("WORKSPACE_DIR", app_data_dir.to_string_lossy().to_string());
+    // Use sidecar API. Tauri automatically handles the target triple postfix.
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    let cmd = app.shell().sidecar("miniclaw")
+        .map_err(|e| format!("Failed to create sidecar command: {}", e))?
+        .env("RESOURCES_DIR", resource_dir.to_string_lossy().to_string());
     
+    println!("Starting sidecar: miniclaw");
+    println!("Resource directory: {:?}", resource_dir);
+    println!("Workspace directory: {:?}", miniclaw_path);
+
     let (mut rx, child) = cmd.spawn()
-        .map_err(|e| format!("Failed to spawn backend: {}. Path: {:?}", e, binary_path))?;
+        .map_err(|e| format!("Failed to spawn sidecar backend: {}", e))?;
 
     // Listen to stdout/stderr and emit to frontend
     let app_handle = app.clone();
@@ -108,21 +105,20 @@ async fn stop_backend(state: State<'_, BackendState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_config_path(app: AppHandle) -> PathBuf {
-    let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("."));
-    app_data_dir.join("config").join("config.yaml")
+fn get_config_path() -> PathBuf {
+    get_miniclaw_path().join("config.yaml")
 }
 
 #[tauri::command]
-async fn read_config(app: AppHandle) -> Result<String, String> {
-    let path = get_config_path(app);
+async fn read_config() -> Result<String, String> {
+    let path = get_config_path();
     println!("Reading config from: {:?}", path);
     fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn save_config(app: AppHandle, content: String) -> Result<(), String> {
-    let path = get_config_path(app);
+async fn save_config(content: String) -> Result<(), String> {
+    let path = get_config_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -136,7 +132,7 @@ fn get_backend_status(state: State<'_, BackendState>) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(BackendState::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -148,6 +144,17 @@ pub fn run() {
             read_config,
             save_config
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            let state = handle.state::<BackendState>();
+            let mut child_guard = state.child.lock().unwrap();
+            if let Some(child) = child_guard.take() {
+                println!("[SYSTEM] Clean up sidecar on exit...");
+                let _ = child.kill();
+            }
+        }
+    });
 }

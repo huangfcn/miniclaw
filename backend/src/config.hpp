@@ -105,15 +105,16 @@ public:
 
     if (config_["memory"] && config_["memory"]["workspace"]) {
       std::string ws = config_["memory"]["workspace"].as<std::string>();
-      fs::path p(ws);
-      if (p.is_relative()) {
-        // Resolve relative paths relative to the config file's directory
-        fs::path config_dir = fs::path(actual_config_path_).parent_path();
-        if (config_dir.empty())
-          config_dir = ".";
-        return fs::absolute(config_dir / p).lexically_normal().string();
+      if (ws != "." && ws != "./") {
+        fs::path p(ws);
+        if (p.is_relative()) {
+          fs::path config_dir = fs::path(actual_config_path_).parent_path();
+          if (config_dir.empty())
+            config_dir = ".";
+          return fs::absolute(config_dir / p).lexically_normal().string();
+        }
+        return fs::absolute(p).lexically_normal().string();
       }
-      return fs::absolute(p).lexically_normal().string();
     }
 
     return fs::absolute(get_default_workspace()).lexically_normal().string();
@@ -224,20 +225,34 @@ public:
   // Prompts
   std::string load_prompt(const std::string &name,
                           const std::string &default_prompt) const {
-    fs::path relative_path = fs::path("config/prompts") / (name + ".txt");
-    fs::path p = relative_path;
+    // Priority:
+    // 1. Workspace prompts (~/.miniclaw/prompts)
+    // 2. Relative to config/prompts
+    // 3. Fallbacks
 
-    if (!fs::exists(p)) {
-      // Try relative to exe
-      fs::path exe_dir = get_executable_dir();
-      if (fs::exists(exe_dir / relative_path)) {
-        p = exe_dir / relative_path;
-      } else if (fs::exists(fs::path("..") / relative_path)) {
-        p = fs::path("..") / relative_path;
+    fs::path ws_prompts = fs::path(memory_workspace()) / "prompts";
+    std::vector<fs::path> candidates = {
+        ws_prompts / (name + ".txt"),
+        ws_prompts / (name + ".md"),
+        fs::path("config/prompts") / (name + ".txt"),
+        fs::path("config/prompts") / (name + ".md"),
+    };
+
+    // Add relative to exe candidates
+    fs::path exe_dir = get_executable_dir();
+    candidates.push_back(exe_dir / "config/prompts" / (name + ".txt"));
+    candidates.push_back(fs::path("..") / "config/prompts" / (name + ".txt"));
+
+    fs::path p;
+    for (const auto &c : candidates) {
+      if (fs::exists(c)) {
+        p = c;
+        break;
       }
     }
 
-    if (fs::exists(p)) {
+    if (!p.empty() && fs::exists(p)) {
+      spdlog::info("Loading prompt file: {}", p.string());
       std::ifstream f(p);
       if (f.is_open()) {
         std::ostringstream ss;
@@ -264,6 +279,13 @@ public:
         exe_dir / "../../frontend/miniclaw/config/config.yaml",
         "config/config.yaml", "../config/config.yaml"};
 
+    // Add Tauri resource path if provided
+    const char *res_env = std::getenv("RESOURCES_DIR");
+    if (res_env) {
+      fs::path res_path = fs::path(res_env) / "resources/workspace";
+      candidates.push_back(res_path / "config/config.yaml");
+    }
+
     for (const auto &c : candidates) {
       if (fs::exists(c)) {
         template_path = c;
@@ -277,8 +299,36 @@ public:
                       fs::copy_options::overwrite_existing);
         std::cout << "Initial config copied from " << template_path << " to "
                   << target << std::endl;
+
+        // Also copy bootstrap files and skills if they exist alongside the
+        // config template
+        fs::path template_base = template_path.parent_path().parent_path();
+        fs::path workspace = fs::path(get_default_workspace());
+
+        const std::vector<std::string> bootstrap_files = {
+            "AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"};
+
+        for (const auto &fname : bootstrap_files) {
+          fs::path src = template_base / fname;
+          fs::path dst = workspace / fname;
+          if (fs::exists(src) && !fs::exists(dst)) {
+            fs::copy_file(src, dst);
+            std::cout << "Bootstrap file copied: " << fname << std::endl;
+          }
+        }
+
+        // Copy skills directory
+        fs::path src_skills = template_base / "skills";
+        fs::path dst_skills = workspace / "skills";
+        if (fs::exists(src_skills) && !fs::exists(dst_skills)) {
+          fs::copy(src_skills, dst_skills,
+                   fs::copy_options::recursive |
+                       fs::copy_options::overwrite_existing);
+          std::cout << "Skills directory copied from template." << std::endl;
+        }
+
       } catch (const std::exception &e) {
-        std::cerr << "Failed to copy template config: " << e.what()
+        std::cerr << "Failed to copy initial workspace files: " << e.what()
                   << std::endl;
       }
     }

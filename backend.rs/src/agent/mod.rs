@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use anyhow::{Result, anyhow};
+use crate::config::Config;
 use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
 use crate::memory::{SessionManager, MemoryStore};
 use chrono::Utc;
@@ -42,6 +43,7 @@ pub struct Agent {
     memory: MemoryStore,
     skills: SkillsLoader,
     subagents: Mutex<Option<Arc<SubagentManager>>>,
+    config: Config,
 }
 
 #[derive(Default)]
@@ -54,7 +56,7 @@ struct ToolCallAccum {
 }
 
 impl Agent {
-    pub fn new(workspace: String) -> Self {
+    pub fn new(workspace: String, config: Config) -> Self {
         let mut tools: std::collections::HashMap<String, Arc<dyn Tool>> = std::collections::HashMap::new();
         tools.insert("exec".to_string(), Arc::new(TerminalTool));
         tools.insert("read_file".to_string(), Arc::new(ReadFileTool));
@@ -76,6 +78,7 @@ impl Agent {
             subagents: Mutex::new(None),
             workspace,
             tools,
+            config,
         }
     }
 
@@ -271,11 +274,15 @@ impl Agent {
         let ws_path = std::path::Path::new(&self.workspace).canonicalize()
             .unwrap_or_else(|_| std::path::PathBuf::from(&self.workspace));
         
-        format!(
+        let default_identity = format!(
             "# miniclaw 🦞\n\nYou are miniclaw, a high-performance personal AI assistant.\n\n## Current Time\n{}\n\n## Workspace\nYour workspace is at: {}\n- Long-term memory: memory/MEMORY.md\n- History log: memory/HISTORY.md\n- Skills: skills/\n\nAlways be helpful, accurate, and concise.\nWhen remembering something important, write to memory/MEMORY.md\nTo recall past events, use exec to grep memory/HISTORY.md",
             time_str,
             ws_path.to_string_lossy()
-        )
+        );
+
+        self.config.load_prompt("role", &default_identity)
+            .replace("{{TIME}}", &time_str)
+            .replace("{{WORKSPACE}}", &ws_path.to_string_lossy())
     }
 
     fn load_bootstrap_files(&self) -> String {

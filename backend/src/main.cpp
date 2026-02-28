@@ -103,6 +103,9 @@ int main() {
   spdlog::info("Config file: {}", Config::instance().config_file_path());
   spdlog::info("Memory workspace: {}", Config::instance().memory_workspace());
   spdlog::info("Skills path: {}", Config::instance().skills_path());
+  spdlog::info(
+      "Prompts path: {}",
+      (fs::path(Config::instance().memory_workspace()) / "prompts").string());
 
   // Log bootstrap files
   for (const char *f : ContextBuilder::BOOTSTRAP_FILES) {

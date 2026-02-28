@@ -36,13 +36,26 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let _ = tracing::info!("Starting miniclaw Backend (Rust)");
     let config = Config::load();
-    tracing::info!("Config file: {}", config.actual_config_path);
-    
     let workspace_path = PathBuf::from(config.memory_workspace());
+    
+    // Configure logging early
+    let file_appender = tracing_appender::rolling::never(&workspace_path, "backend.log");
+    let (non_blocking, _guard) = non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+        ))
+        .with(tracing_subscriber::fmt::layer()) // Console
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking)) // File
+        .init();
+
+    tracing::info!("Starting miniclaw Backend (Rust)");
+    tracing::info!("Config file: {}", config.actual_config_path);
     tracing::info!("Memory workspace: {}", workspace_path.display());
     tracing::info!("Skills path: {}", config.skills_path());
+    tracing::info!("Prompts path: {}", workspace_path.join("prompts").display());
 
     // Log bootstrap files
     for f in &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"] {
@@ -56,22 +69,7 @@ async fn main() {
 
     bootstrap_workspace(&workspace_path);
     
-    // Configure logging
-    let file_appender = tracing_appender::rolling::never(&workspace_path, "backend.log");
-    let (non_blocking, _guard) = non_blocking(file_appender);
-
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer()) // Console
-        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking)) // File
-        .init();
-
-    tracing::info!("Starting miniclaw Backend (Rust)");
-    tracing::info!("Workspace: {}", workspace_path.display());
-
-    let agent = Arc::new(Agent::new(workspace_path.to_string_lossy().to_string()));
+    let agent = Arc::new(Agent::new(workspace_path.to_string_lossy().to_string(), config.clone()));
     let subagent_mgr = Arc::new(crate::agent::SubagentManager::new(Arc::clone(&agent)));
     agent.set_subagents(subagent_mgr);
 
