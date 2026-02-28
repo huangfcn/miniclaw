@@ -4,6 +4,7 @@
 namespace fs = std::filesystem;
 #include "agent/shutdown.hpp"
 #include <condition_variable>
+#include <csignal>
 #include <curl/curl.h>
 #include <fiber.h>
 #include <spdlog/spdlog.h>
@@ -35,12 +36,12 @@ BOOL WINAPI console_handler(DWORD ctrl_type) {
     if (ms - last <= 1000 && last != 0) {
       const char msg[] = "\nReceived second Ctrl-C within 1s, initiating "
                          "graceful shutdown...\n";
-      write(STDERR_FILENO, msg, sizeof(msg) - 1);
+      [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
       miniclaw_trigger_shutdown();
       return TRUE;
     } else {
       const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit.\n";
-      write(STDERR_FILENO, msg, sizeof(msg) - 1);
+      [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
       return TRUE;
     }
   }
@@ -58,11 +59,11 @@ void signal_handler(int signum) {
   if (ms - last <= 1000 && last != 0) {
     const char msg[] =
         "\nReceived second Ctrl-C within 1s, initiating graceful shutdown...\n";
-    write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
     miniclaw_trigger_shutdown();
   } else {
     const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit.\n";
-    write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
   }
 }
 
