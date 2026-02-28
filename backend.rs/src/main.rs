@@ -1,6 +1,9 @@
 mod agent;
 mod tools;
 mod memory;
+mod config;
+
+use crate::config::Config;
 
 use axum::{
     extract::State,
@@ -33,7 +36,24 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let workspace_path = resolve_workspace_path();
+    let _ = tracing::info!("Starting miniclaw Backend (Rust)");
+    let config = Config::load();
+    tracing::info!("Config file: {}", config.actual_config_path);
+    
+    let workspace_path = PathBuf::from(config.memory_workspace());
+    tracing::info!("Memory workspace: {}", workspace_path.display());
+    tracing::info!("Skills path: {}", config.skills_path());
+
+    // Log bootstrap files
+    for f in &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"] {
+        let p = workspace_path.join(f);
+        if p.exists() {
+            tracing::info!("Using bootstrap file: {}", p.display());
+        } else {
+            tracing::warn!("Bootstrap file not found: {}", p.display());
+        }
+    }
+
     bootstrap_workspace(&workspace_path);
     
     // Configure logging
@@ -72,18 +92,7 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-fn resolve_workspace_path() -> PathBuf {
-    if let Ok(ws) = std::env::var("WORKSPACE_DIR") {
-        return PathBuf::from(ws);
-    }
-
-    if let Some(proj_dirs) = ProjectDirs::from("com", "huangfcn", "miniclaw") {
-        let data_dir = proj_dirs.data_dir();
-        return data_dir.to_path_buf();
-    }
-
-    PathBuf::from(".")
-}
+// Removed resolve_workspace_path as it's now handled by Config
 
 fn bootstrap_workspace(path: &Path) {
     let _ = std::fs::create_dir_all(path);
