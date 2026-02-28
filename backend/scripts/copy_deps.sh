@@ -1,50 +1,123 @@
 #!/bin/bash
 
-# Configuration
-EXE_PATH="backend/build/miniclaw.exe"
-DEST_DIR="frontend/src-tauri/binaries"
-UCRT64_BIN="/ucrt64/bin"
-TARGET_TRIPLE="x86_64-pc-windows-msvc"
+# --- Position Independent Logic ---
+# Get the absolute path of the script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Project root is two levels up from backend/scripts/
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Ensure UCRT64/bin is in PATH if it exists
-if [ -d "$UCRT64_BIN" ]; then
-    export PATH="$UCRT64_BIN:$PATH"
+echo "Project Root: $ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
+
+# --- Configuration ---
+# Default paths relative to project root
+EXE_PATH="backend/build/miniclaw"
+if [ -f "${EXE_PATH}.exe" ]; then
+    EXE_PATH="${EXE_PATH}.exe"
 fi
 
-# Check if executable exists
+DEST_DIR="frontend/src-tauri/binaries"
+RESOURCE_DIR="frontend/src-tauri/resources/workspace"
+WORKSPACE_SRC="frontend/miniclaw"
+
+# Detection of OS
+OS_TYPE="$(uname -s)"
+case "$OS_TYPE" in
+    Linux*)     OS="linux";;
+    Darwin*)    OS="macos";;
+    CYGWIN*|MINGW*|MSYS*) OS="windows";;
+    *)          OS="unknown";;
+esac
+
+echo "Detected OS: $OS"
+
+# Target Triple Detection (Simplified for common architectures)
+ARCH="$(uname -m)"
+case "$OS" in
+    windows) TARGET_TRIPLE="${ARCH}-pc-windows-msvc";; # MSYS2 often produces this or gnu
+    macos)   TARGET_TRIPLE="${ARCH}-apple-darwin";;
+    linux)   TARGET_TRIPLE="${ARCH}-unknown-linux-gnu";;
+    *)       TARGET_TRIPLE="unknown";;
+esac
+
+# Allow override from env
+TARGET_TRIPLE="${TARGET_TRIPLE_OVERRIDE:-$TARGET_TRIPLE}"
+
+# --- Validation ---
 if [ ! -f "$EXE_PATH" ]; then
     echo "Error: $EXE_PATH not found. Please build the backend first."
     exit 1
 fi
 
-# Create destination directory
 mkdir -p "$DEST_DIR"
-echo "Target directory: $DEST_DIR"
+mkdir -p "$RESOURCE_DIR"
 
-# Get dependencies using ldd
-echo "Finding dependencies for $EXE_PATH..."
+# --- Dependency Copying Logic ---
+echo "Copying dependencies for $OS..."
 
-# Parse ldd output:
-# 1. Get lines with '=>'
-# 2. Extract the full path (second part after =>)
-# 3. Filter for paths starting with /ucrt64 (we usually don't want system c:/windows DLLs)
-# 4. Copy each file
+case "$OS" in
+    windows)
+        # MSYS2 UCRT64 specific
+        UCRT64_BIN="/ucrt64/bin"
+        if [ -d "$UCRT64_BIN" ]; then
+            export PATH="$UCRT64_BIN:$PATH"
+        fi
+        ldd "$EXE_PATH" | grep "=> /ucrt64" | awk '{print $3}' | while read -r dll_path; do
+            if [ -f "$dll_path" ]; then
+                cp -u "$dll_path" "$DEST_DIR/"
+                echo "  + $(basename "$dll_path")"
+            fi
+        done
+        ;;
+    linux)
+        # Find shared libraries NOT in standard system paths
+        ldd "$EXE_PATH" | grep "/" | grep -v "/lib/" | grep -v "/usr/lib/" | awk '{print $3}' | while read -r lib_path; do
+            if [ -f "$lib_path" ]; then
+                cp -u "$lib_path" "$DEST_DIR/"
+                echo "  + $(basename "$lib_path")"
+            fi
+        done
+        ;;
+    macos)
+        # otool -L output parsing
+        otool -L "$EXE_PATH" | grep "/" | grep -v "/usr/lib/" | grep -v "/System/" | awk '{print $1}' | while read -r lib_path; do
+            if [ -f "$lib_path" ]; then
+                cp -u "$lib_path" "$DEST_DIR/"
+                echo "  + $(basename "$lib_path")"
+            fi
+        done
+        ;;
+esac
 
-ldd "$EXE_PATH" | grep "=> /ucrt64" | awk '{print $3}' | while read -r dll_path; do
-    if [ -f "$dll_path" ]; then
-        dll_name=$(basename "$dll_path")
-        echo "Copying $dll_name..."
-        cp -u "$dll_path" "$DEST_DIR/"
-    else
-        echo "Warning: Dependency $dll_path not found on disk."
+# --- Sidecar Renaming ---
+EXE_NAME=$(basename "$EXE_PATH" .exe)
+SIDECAR_NAME="${EXE_NAME}-${TARGET_TRIPLE}"
+if [[ "$OS" == "windows" ]]; then
+    SIDECAR_NAME="${SIDECAR_NAME}.exe"
+fi
+
+echo "Copying sidecar: $SIDECAR_NAME"
+cp -u "$EXE_PATH" "$DEST_DIR/$SIDECAR_NAME"
+
+# --- Workspace Asset Bundling ---
+echo "Bundling workspace assets into $RESOURCE_DIR..."
+FILES=("AGENTS.md" "SOUL.md" "USER.md" "TOOLS.md" "IDENTITY.md")
+
+for f in "${FILES[@]}"; do
+    if [ -f "$WORKSPACE_SRC/$f" ]; then
+        cp -u "$WORKSPACE_SRC/$f" "$RESOURCE_DIR/"
     fi
 done
 
-# Copy and rename executable as sidecar
-EXE_NAME=$(basename "$EXE_PATH" .exe)
-SIDECAR_NAME="${EXE_NAME}-${TARGET_TRIPLE}.exe"
-echo "Copying and renaming executable to $SIDECAR_NAME..."
-cp -u "$EXE_PATH" "$DEST_DIR/$SIDECAR_NAME"
+# Copy directories
+if [ -d "$WORKSPACE_SRC/skills" ]; then
+    echo "  + skills/"
+    cp -ru "$WORKSPACE_SRC/skills" "$RESOURCE_DIR/"
+fi
 
-echo "Done. All UCRT64 dependencies and the sidecar executable have been copied to $DEST_DIR."
-echo "Note: Windows system DLLs (C:/Windows/...) were skipped as they should be present on most systems."
+if [ -d "$WORKSPACE_SRC/config" ]; then
+    echo "  + config/"
+    cp -ru "$WORKSPACE_SRC/config" "$RESOURCE_DIR/"
+fi
+
+echo "Done. Deployment assets prepared in $DEST_DIR and $RESOURCE_DIR"

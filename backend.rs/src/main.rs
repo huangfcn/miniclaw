@@ -15,7 +15,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tracing_subscriber::prelude::*;
 use tracing_appender::non_blocking;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use directories::ProjectDirs;
 use tower_http::cors::CorsLayer;
 
 use crate::agent::{Agent, AgentEvent};
@@ -32,8 +33,8 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let workspace = std::env::var("WORKSPACE_DIR").unwrap_or_else(|_| ".".to_string());
-    let workspace_path = Path::new(&workspace).canonicalize().unwrap_or_else(|_| workspace.clone().into());
+    let workspace_path = resolve_workspace_path();
+    bootstrap_workspace(&workspace_path);
     
     // Configure logging
     let file_appender = tracing_appender::rolling::never(&workspace_path, "backend.log");
@@ -50,7 +51,7 @@ async fn main() {
     tracing::info!("Starting miniclaw Backend (Rust)");
     tracing::info!("Workspace: {}", workspace_path.display());
 
-    let agent = Arc::new(Agent::new());
+    let agent = Arc::new(Agent::new(workspace_path.to_string_lossy().to_string()));
     let subagent_mgr = Arc::new(crate::agent::SubagentManager::new(Arc::clone(&agent)));
     agent.set_subagents(subagent_mgr);
 
@@ -69,6 +70,26 @@ async fn main() {
     
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+fn resolve_workspace_path() -> PathBuf {
+    if let Ok(ws) = std::env::var("WORKSPACE_DIR") {
+        return PathBuf::from(ws);
+    }
+
+    if let Some(proj_dirs) = ProjectDirs::from("com", "huangfcn", "miniclaw") {
+        let data_dir = proj_dirs.data_dir();
+        return data_dir.to_path_buf();
+    }
+
+    PathBuf::from(".")
+}
+
+fn bootstrap_workspace(path: &Path) {
+    let _ = std::fs::create_dir_all(path);
+    let _ = std::fs::create_dir_all(path.join("memory"));
+    let _ = std::fs::create_dir_all(path.join("sessions"));
+    let _ = std::fs::create_dir_all(path.join("skills"));
 }
 
 async fn chat_handler(

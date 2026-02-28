@@ -19,19 +19,36 @@ async fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result
 
     println!("Current Working Directory: {:?}", std::env::current_dir().unwrap_or_default());
 
-    // Correct relative path: src-tauri and miniclaw are siblings under frontend/
-    let working_dir = PathBuf::from("../miniclaw");
+    let app_handle = app.clone();
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    
+    // In dev, we might still want to use the local folder if requested, 
+    // but the backend now bootstraps itself in AppData by default.
+    // We will force WORKSPACE_DIR to AppData for production readiness.
+    fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+
+    let working_dir = if cfg!(debug_assertions) {
+        PathBuf::from("../miniclaw")
+    } else {
+        app_data_dir.clone()
+    };
 
     let binary_name = if cfg!(windows) { "miniclaw.exe" } else { "miniclaw" };
-    let binary_path = working_dir.join("bin").join(binary_name);
+    // Assuming binary is in the 'bin' folder relative to current exe in dev, 
+    // or bundled as a sidecar in production.
+    let binary_path = if cfg!(debug_assertions) {
+        PathBuf::from("../miniclaw/bin").join(binary_name)
+    } else {
+        // In production, we'd use sidecar, but the user is currently using a custom bin path
+        PathBuf::from("../miniclaw/bin").join(binary_name) 
+    };
 
     println!("Starting backend from: {:?}", binary_path);
-    println!("Working directory: {:?}", working_dir);
+    println!("Workspace directory (AppData): {:?}", app_data_dir);
 
     // Use command instead of sidecar to run from the specific bin folder
     let cmd = app.shell().command(binary_path.to_string_lossy().to_string())
-        .current_dir(working_dir.clone())
-        .env("WORKSPACE_DIR", working_dir.to_string_lossy().to_string());
+        .env("WORKSPACE_DIR", app_data_dir.to_string_lossy().to_string());
     
     let (mut rx, child) = cmd.spawn()
         .map_err(|e| format!("Failed to spawn backend: {}. Path: {:?}", e, binary_path))?;
@@ -91,9 +108,9 @@ async fn stop_backend(state: State<'_, BackendState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_config_path(_app: AppHandle) -> PathBuf {
-    let base_path = PathBuf::from("../miniclaw");
-    base_path.join("config").join("config.yaml")
+fn get_config_path(app: AppHandle) -> PathBuf {
+    let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("."));
+    app_data_dir.join("config").join("config.yaml")
 }
 
 #[tauri::command]

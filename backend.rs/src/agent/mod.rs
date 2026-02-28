@@ -54,7 +54,7 @@ struct ToolCallAccum {
 }
 
 impl Agent {
-    pub fn new() -> Self {
+    pub fn new(workspace: String) -> Self {
         let mut tools: std::collections::HashMap<String, Arc<dyn Tool>> = std::collections::HashMap::new();
         tools.insert("exec".to_string(), Arc::new(TerminalTool));
         tools.insert("read_file".to_string(), Arc::new(ReadFileTool));
@@ -65,9 +65,7 @@ impl Agent {
             api_key: std::env::var("BRAVE_API_KEY").unwrap_or_default()
         }));
         tools.insert("web_fetch".to_string(), Arc::new(WebFetchTool));
-
-        let workspace = std::env::var("WORKSPACE_DIR").unwrap_or_else(|_| ".".to_string());
-        
+       
         Self {
             api_key: std::env::var("OPENAI_API_KEY").unwrap_or_default(),
             api_base: std::env::var("OPENAI_API_BASE").unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),

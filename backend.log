@@ -1,0 +1,41 @@
+[2026-02-28 10:31:26.569] [multi_sink] [info] Starting miniclaw Backend (C++) with uWebSockets
+[2026-02-28 10:31:26.569] [multi_sink] [info] Config file: D:\msys64\home\feng huang\.miniclaw\config.yaml
+[2026-02-28 10:31:26.570] [multi_sink] [info] Memory workspace: D:\workspace\miniclaw
+[2026-02-28 10:31:26.570] [multi_sink] [info] Skills path: D:\workspace\miniclaw\skills
+[2026-02-28 10:31:26.571] [multi_sink] [info] No skills found in skills
+[2026-02-28 10:31:26.572] [multi_sink] [info] Agent initialized: model=gpt-oss:120b workspace=D:\workspace\miniclaw
+[2026-02-28 10:31:26.573] [multi_sink] [info] Initializing FiberPool with 4 nodes
+[2026-02-28 10:31:26.577] [multi_sink] [info] Fiber node thread started: 8670141377090704656
+[2026-02-28 10:31:26.578] [multi_sink] [info] Fiber node thread started: 1230235464250880600
+[2026-02-28 10:31:26.578] [multi_sink] [info] Fiber node thread started: 18137369640724998020
+[2026-02-28 10:31:26.578] [multi_sink] [info] Fiber node thread started: 4249528327736205830
+[2026-02-28 10:31:26.595] [multi_sink] [info] Spawn system (FiberPool) ready
+[2026-02-28 10:31:26.596] [multi_sink] [info] Backend running on port 9000 (Non-blocking Fiber Nodes)
+[2026-02-28 10:31:26.596] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 10:31:26.596] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 10:31:26.596] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 10:31:26.596] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 10:59:08.280] [multi_sink] [info] Initiating graceful shutdown...
+[2026-02-28 10:59:08.661] [multi_sink] [info] Fiber node thread exiting
+[2026-02-28 10:59:09.645] [multi_sink] [info] Fiber node thread exiting
+[2026-02-28 10:59:10.601] [multi_sink] [info] Fiber node thread exiting
+[2026-02-28 10:59:10.625] [multi_sink] [info] Fiber node thread exiting
+[2026-02-28 10:59:10.625] [multi_sink] [info] Shutdown complete. Exiting.
+[2026-02-28 11:02:25.372] [multi_sink] [info] Starting miniclaw Backend (C++) with uWebSockets
+[2026-02-28 11:02:25.372] [multi_sink] [info] Config file: C:\Users\feng huang\.miniclaw\config.yaml
+[2026-02-28 11:02:25.372] [multi_sink] [info] Memory workspace: D:\workspace\miniclaw
+[2026-02-28 11:02:25.373] [multi_sink] [info] Skills path: D:\workspace\miniclaw\skills
+[2026-02-28 11:02:25.373] [multi_sink] [info] No skills found in skills
+[2026-02-28 11:02:25.374] [multi_sink] [info] Agent initialized: model=gpt-oss:120b workspace=D:\workspace\miniclaw
+[2026-02-28 11:02:25.374] [multi_sink] [info] Initializing FiberPool with 4 nodes
+[2026-02-28 11:02:25.378] [multi_sink] [info] Fiber node thread started: 1230235464250880600
+[2026-02-28 11:02:25.378] [multi_sink] [info] Fiber node thread started: 8670141377090704656
+[2026-02-28 11:02:25.378] [multi_sink] [info] Fiber node thread started: 4249528327736205830
+[2026-02-28 11:02:25.378] [multi_sink] [info] Fiber node thread started: 18137369640724998020
+[2026-02-28 11:02:25.381] [multi_sink] [info] Spawn system (FiberPool) ready
+[2026-02-28 11:02:25.381] [multi_sink] [info] Backend running on port 9000 (Non-blocking Fiber Nodes)
+[2026-02-28 11:02:25.381] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 11:02:25.381] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 11:02:25.381] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 11:02:25.381] [multi_sink] [info] FiberNode listening on port 9000
+[2026-02-28 11:03:52.392] [multi_sink] [info] Initiating graceful shutdown...
