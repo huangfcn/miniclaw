@@ -402,3 +402,63 @@ else()
     )
     target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
 endif()
+
+add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp)
+target_include_directories(test_gmail PRIVATE 
+    src
+    ${EXTERNAL_DIR}/spdlog/include
+    ${LIBUV_DIR}/include
+    ${FIBER_DIR}/include
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/src
+)
+target_link_libraries(test_gmail PRIVATE 
+    uSockets
+    OpenSSL::SSL 
+    OpenSSL::Crypto
+    CURL::libcurl
+    ZLIB::ZLIB
+    z
+    pthread
+    yaml-cpp
+    simdjson
+    ${LIBUV_DIR}/lib/libuv.a
+    ${FIBER_DIR}/lib/libfiber.a
+    ${FAISS_DIR}/lib/libfaiss.a
+)
+
+if(APPLE)
+    target_link_libraries(test_gmail PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        "-framework Accelerate"
+        "/opt/homebrew/opt/libomp/lib/libomp.dylib"
+    )
+    target_link_libraries(test_gmail PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+elseif(WIN32)
+    target_link_libraries(test_gmail PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        openblas
+        ws2_32
+        iphlpapi
+        userenv
+        dbghelp
+        gomp
+    )
+    target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
+else()
+    target_link_libraries(test_gmail PRIVATE 
+        ${LUCENE_DIR}/lib/liblucene++.a
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        OpenMP::OpenMP_CXX
+        blas
+        lapack
+    )
+    target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
+endif()

@@ -1,9 +1,6 @@
-mod agent;
-mod tools;
-mod memory;
-mod config;
+// Modules are now in lib.rs
 
-use crate::config::Config;
+use miniclaw_rust::config::Config;
 
 use axum::{
     extract::State,
@@ -22,7 +19,7 @@ use std::path::{Path, PathBuf};
 use directories::ProjectDirs;
 use tower_http::cors::CorsLayer;
 
-use crate::agent::{Agent, AgentEvent};
+use miniclaw_rust::agent::{Agent, AgentEvent};
 
 #[derive(Deserialize)]
 struct ChatRequest {
@@ -70,7 +67,7 @@ async fn main() {
     bootstrap_workspace(&workspace_path);
     
     let agent = Arc::new(Agent::new(workspace_path.to_string_lossy().to_string(), config.clone()));
-    let subagent_mgr = Arc::new(crate::agent::SubagentManager::new(Arc::clone(&agent)));
+    let subagent_mgr = Arc::new(miniclaw_rust::agent::SubagentManager::new(Arc::clone(&agent)));
     agent.set_subagents(subagent_mgr);
 
     let state = Arc::new(AppState {

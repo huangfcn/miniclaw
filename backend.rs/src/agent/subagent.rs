@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 use std::sync::Arc;
-use crate::agent::{Agent, AgentEvent};
+use crate::agent::Agent;
 use chrono::Utc;
 
 pub struct SubagentManager {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use anyhow::{Result, anyhow};
 use crate::config::Config;
-use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool};
+use crate::tools::{Tool, TerminalTool, ReadFileTool, WriteFileTool, WebSearchTool, WebFetchTool, ListDirTool, EditFileTool, GmailTool};
 use crate::memory::{SessionManager, MemoryStore};
 use chrono::Utc;
 
@@ -67,6 +67,7 @@ impl Agent {
             api_key: std::env::var("BRAVE_API_KEY").unwrap_or_default()
         }));
         tools.insert("web_fetch".to_string(), Arc::new(WebFetchTool));
+        tools.insert("gmail".to_string(), Arc::new(GmailTool::new(&workspace)));
        
         Self {
             api_key: std::env::var("OPENAI_API_KEY").unwrap_or_default(),

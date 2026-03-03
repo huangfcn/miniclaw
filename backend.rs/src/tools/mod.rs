@@ -7,6 +7,9 @@ use serde_json::json;
 use crate::agent::SubagentManager;
 use std::sync::Arc;
 
+mod gmail;
+pub use gmail::GmailTool;
+
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
