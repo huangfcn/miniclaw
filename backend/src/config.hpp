@@ -43,8 +43,7 @@ public:
 
     // 2. Check system config directory
     if (!found) {
-      fs::path system_config =
-          fs::path(get_default_workspace()) / "config.yaml";
+      fs::path system_config = fs::path(get_default_workspace()) / path;
       if (fs::exists(system_config)) {
         p = system_config;
         found = true;
@@ -264,7 +263,7 @@ public:
   }
 
   void ensure_config_exists() {
-    fs::path target = fs::path(get_default_workspace()) / "config.yaml";
+    fs::path target = fs::path(get_default_workspace()) / "config/config.yaml";
     if (fs::exists(target))
       return;
 
@@ -275,9 +274,8 @@ public:
     fs::path exe_dir = get_executable_dir();
 
     std::vector<fs::path> candidates = {
-        exe_dir / "config/config.yaml", exe_dir / "../config/config.yaml",
-        exe_dir / "../../frontend/miniclaw/config/config.yaml",
-        "config/config.yaml", "../config/config.yaml"};
+        exe_dir / "../config/config.yaml",
+        "./config/config.yaml"};
 
     // Add Tauri resource path if provided
     const char *res_env = std::getenv("RESOURCES_DIR");

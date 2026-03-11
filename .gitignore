@@ -11,6 +11,7 @@ backend/third-party/LucenePlusPlus/*
 backend/third-party/fiber/
 backend/third-party/libuv/
 backend/third-party/fiber-src.tar.gz
+backend/third-party/busybox-w32/
 
 # test output
 backend/*test*.txt

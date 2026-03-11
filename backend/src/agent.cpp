@@ -386,7 +386,7 @@ LLMResponse Agent::call_llm(const std::vector<Message> &messages,
     url += "/chat/completions";
     effective_endpoint = url;
   }
-  spdlog::info("LLM URL: {}", effective_endpoint);
+  spdlog::info("LLM URL: {} Model: {}", effective_endpoint, effective_model);
 
   curl_easy_setopt(easy, CURLOPT_URL, effective_endpoint.c_str());
   curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS, payload_str.c_str());

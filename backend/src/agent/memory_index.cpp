@@ -70,6 +70,7 @@ struct MemoryIndex::Impl {
         }
         
         lucene_path = StringUtils::toUnicode(path + "/lucene");
+        fs::create_directories(path + "/lucene");
         analyzer = newLucene<StandardAnalyzer>(LuceneVersion::LUCENE_CURRENT);
         directory = FSDirectory::open(lucene_path);
     }

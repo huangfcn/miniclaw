@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import Sidebar from "./components/Sidebar";
 import Chat from "./components/Chat";
 import Settings from "./components/Settings";
@@ -12,10 +11,19 @@ function App() {
 
   const checkStatus = async () => {
     try {
-      const status = await invoke("get_backend_status");
-      setIsBackendRunning(status as boolean);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1000);
+      // Use no-cors to avoid requiring changes to the C++ backend
+      await fetch("http://localhost:9000/api/health", {
+        mode: 'no-cors',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      // If fetch didn't throw a network error, the server is reachable!
+      setIsBackendRunning(true);
     } catch (error) {
-      console.error("Failed to check status", error);
+      // If the server is offline, it throws a TypeError "Failed to fetch"
+      setIsBackendRunning(false);
     }
   };
 
