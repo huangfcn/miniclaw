@@ -13,6 +13,7 @@
 #include <unistd.h>
 #endif
 #include <yaml-cpp/yaml.h>
+#include <spdlog/spdlog.h>
 
 namespace fs = std::filesystem;
 
@@ -219,6 +220,12 @@ public:
       return (fs::path(memory_workspace()) / path).string();
     }
     return p;
+  }
+
+  // Tools
+  std::string tools_path() const {
+    std::string default_tools = (fs::path(get_default_workspace()) / "tools").string();
+    return get<std::string>("server", "tools", default_tools);
   }
 
   // Prompts

@@ -6,7 +6,6 @@ namespace fs = std::filesystem;
 #include <condition_variable>
 #include <csignal>
 #include <curl/curl.h>
-#include <fiber.h>
 #include <spdlog/spdlog.h>
 #include <thread>
 #include <uv.h>
@@ -68,6 +67,9 @@ void signal_handler(int signum) {
 }
 
 int main() {
+  // Initialize Global State
+  curl_global_init(CURL_GLOBAL_ALL);
+
   // Load Configuration
   Config::instance().load();
   Config::instance().bootstrap_workspace();
@@ -145,18 +147,16 @@ int main() {
     spdlog::error("Error listing skills: {}", e.what());
   }
 
-  FiberGlobalStartup();
-
   static Agent global_agent;
 
-  // Initialize FiberPool with threads and the global agent from config
+  // Initialize ThreadPool with threads and the global agent from config
   int threads = Config::instance().server_threads();
   FiberPool::instance().init(threads, &global_agent);
 
   init_spawn_system();
 
   int port = Config::instance().server_port();
-  spdlog::info("Backend running on port {} (Non-blocking Fiber Nodes)", port);
+  spdlog::info("Backend running on port {} (Standard Thread Workers)", port);
 
   // Register signal handler for Ctrl-C
 #if defined(_WIN32)
@@ -169,8 +169,7 @@ int main() {
   miniclaw_wait_for_shutdown();
 
   spdlog::info("Initiating graceful shutdown...");
-  FiberPool::instance().stop(); // Stop the FiberPool
-  // FiberGlobalShutdown(); // Not defined in fiber.h
+  FiberPool::instance().stop(); // Stop the ThreadPool
   curl_global_cleanup(); // Cleanup libcurl
 
   spdlog::info("Shutdown complete. Exiting.");

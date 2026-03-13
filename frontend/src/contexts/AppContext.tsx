@@ -19,6 +19,7 @@ interface AppState {
   chat: {
     messages: Message[];
     input: string;
+    sessionId: string;
     isLoading: boolean;
   };
   settings: {
@@ -41,6 +42,15 @@ interface AppContextType {
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
 }
 
+export const generateSessionId = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 16; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `${result}_${Date.now()}`;
+};
+
 // Create the context with a default value
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -50,6 +60,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     chat: {
       messages: [],
       input: "",
+      sessionId: generateSessionId(),
       isLoading: false,
     },
     settings: {

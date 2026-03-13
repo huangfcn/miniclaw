@@ -1,7 +1,7 @@
 # backend 
 backend/backend.log
 backend/external/
-backend/build
+backend/build*/
 backend/dist/
 
 # third-party

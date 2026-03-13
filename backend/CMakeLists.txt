@@ -15,7 +15,6 @@ set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
 set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
 set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
 set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
-set(FIBER_DIR "${THIRDPARTY_DIR}/fiber")
 set(LIBUV_DIR "${THIRDPARTY_DIR}/libuv")
 
 if(APPLE)
@@ -98,7 +97,6 @@ target_include_directories(miniclaw PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
     ${yaml-cpp_SOURCE_DIR}/include
@@ -128,7 +126,6 @@ target_link_libraries(miniclaw PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -163,36 +160,15 @@ else()
     target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
 endif()
 
-add_executable(test_fiber tests/test_fiber.cpp)
-    target_include_directories(test_fiber PRIVATE 
-    ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
-)
-target_link_libraries(test_fiber PRIVATE 
-    pthread
-    CURL::libcurl
-    simdjson
-    ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
-)
+# Removed test_fiber
 
-if(WIN32)
-    target_link_libraries(test_fiber PRIVATE 
-        ws2_32
-        iphlpapi
-        userenv
-        dbghelp
-        gomp
-    )
-    target_link_libraries(test_fiber PRIVATE ${Boost_LIBRARIES})
-endif()
-
-add_executable(test_agent_loop tests/test_agent_loop.cpp src/agent/memory_index.cpp)
+add_executable(test_agent_loop tests/test_agent_loop.cpp src/agent/memory_index.cpp src/agent/fiber_pool.cpp src/agent.cpp src/agent/shutdown.cpp)
 target_include_directories(test_agent_loop PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -205,8 +181,8 @@ target_link_libraries(test_agent_loop PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
+    uSockets
 )
 
 if(APPLE)
@@ -240,14 +216,15 @@ else()
     target_link_libraries(test_agent_loop PRIVATE ${Boost_LIBRARIES})
 endif()
 
-add_executable(test_memory_index tests/test_memory_index.cpp src/agent/memory_index.cpp)
+add_executable(test_memory_index tests/test_memory_index.cpp src/agent/memory_index.cpp src/agent/fiber_pool.cpp src/agent.cpp src/agent/shutdown.cpp)
 target_include_directories(test_memory_index PRIVATE 
     src
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
 )
 target_link_libraries(test_memory_index PRIVATE 
     pthread
@@ -255,8 +232,8 @@ target_link_libraries(test_memory_index PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
+    uSockets
 )
 
 if(APPLE)
@@ -290,12 +267,13 @@ else()
     target_link_libraries(test_memory_index PRIVATE ${Boost_LIBRARIES})
 endif()
 
-add_executable(test_distillation tests/test_distillation.cpp src/agent/memory_index.cpp)
+add_executable(test_distillation tests/test_distillation.cpp src/agent/memory_index.cpp src/agent/fiber_pool.cpp src/agent.cpp src/agent/shutdown.cpp)
 target_include_directories(test_distillation PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -308,8 +286,8 @@ target_link_libraries(test_distillation PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
+    uSockets
 )
 
 if(APPLE)
@@ -348,11 +326,10 @@ target_include_directories(test_distillation_real PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
-    ${FAISS_DIR}/include
-    ${LUCENE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
@@ -368,7 +345,6 @@ target_link_libraries(test_distillation_real PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -403,16 +379,28 @@ else()
     target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
 endif()
 
+add_executable(test_busybox tests/test_busybox.cpp)
+target_include_directories(test_busybox PRIVATE 
+    src 
+    ${EXTERNAL_DIR}/spdlog/include
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+)
+target_link_libraries(test_busybox PRIVATE pthread yaml-cpp simdjson)
+if(WIN32)
+    target_link_libraries(test_busybox PRIVATE ws2_32 iphlpapi userenv dbghelp)
+    target_link_libraries(test_busybox PRIVATE ${Boost_LIBRARIES})
+endif()
+
 add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp)
 target_include_directories(test_gmail PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
-    ${FAISS_DIR}/include
-    ${LUCENE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
+    ${FAISS_DIR}/include
+    ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
@@ -428,7 +416,6 @@ target_link_libraries(test_gmail PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
     ${FAISS_DIR}/lib/libfaiss.a
 )
 

@@ -66,54 +66,60 @@ int main() {
     fs::create_directories(workspace);
     fs::create_directories(fs::path(workspace) / "memory");
 
-    auto mock_embed_fn = [](const std::string&) -> std::vector<float> { 
-        return std::vector<float>(1024, 0.1f); 
-    };
+    {
+        auto mock_embed_fn = [](const std::string&) -> std::vector<float> { 
+            return std::vector<float>(1024, 0.1f); 
+        };
 
-    AgentLoop loop(workspace, mock_distill_llm, mock_embed_fn, 5);
+        AgentLoop loop(workspace, mock_distill_llm, mock_embed_fn, 5);
 
-    Session session;
-    session.key = "distill_test_session";
-    session.add_message("user", "Hello, let's test distillation.");
-    session.add_message("assistant", "Sure, I'm ready.");
-    session.add_message("user", "This is some important info for L2.");
-    session.add_message("assistant", "Noted for L2.");
+        Session session;
+        session.key = "distill_test_session";
+        session.add_message("user", "Hello, let's test distillation.");
+        session.add_message("assistant", "Sure, I'm ready.");
+        session.add_message("user", "This is some important info for L2.");
+        session.add_message("assistant", "Noted for L2.");
 
-    std::cout << "Testing L1 -> L2 Distillation..." << std::endl;
-    loop.distill_l1_to_l2(session, AgentLoop::DistillationEvent::PERIODIC);
+        std::cout << "Testing L1 -> L2 Distillation..." << std::endl;
+        loop.distill_l1_to_l2(session, AgentLoop::DistillationEvent::PERIODIC);
 
-    // Verify L2 file exists
-    std::string today = get_today_date();
-    fs::path daily_log = fs::path(workspace) / "memory" / (today + ".md");
-    assert(fs::exists(daily_log));
+        // Verify L2 file exists
+        std::string today = get_today_date();
+        fs::path daily_log = fs::path(workspace) / "memory" / (today + ".md");
+        assert(fs::exists(daily_log));
 
-    std::ifstream f2(daily_log);
-    std::string l2_content((std::istreambuf_iterator<char>(f2)), std::istreambuf_iterator<char>());
-    std::cout << "L2 Content:\n" << l2_content << std::endl;
-    assert(l2_content.find("MOCK_DAILY_SUMMARY") != std::string::npos);
-    f2.close();
+        std::ifstream f2(daily_log);
+        std::string l2_content((std::istreambuf_iterator<char>(f2)), std::istreambuf_iterator<char>());
+        std::cout << "L2 Content:\n" << l2_content << std::endl;
+        assert(l2_content.find("MOCK_DAILY_SUMMARY") != std::string::npos);
+        f2.close();
 
-    std::cout << "Testing L2 -> L3 Consolidation..." << std::endl;
-    // For consolidation, we need some messages since last consolidated
-    session.add_message("user", "Now let's move to permanent memory.");
-    session.add_message("assistant", "Finalizing memory store.");
-    
-    loop.consolidate_memory(session);
+        std::cout << "Testing L2 -> L3 Consolidation..." << std::endl;
+        // For consolidation, we need some messages since last consolidated
+        session.add_message("user", "Now let's move to permanent memory.");
+        session.add_message("assistant", "Finalizing memory store.");
+        
+        loop.consolidate_memory(session);
 
-    // Verify L3 file exists
-    fs::path l3_memory = fs::path(workspace) / "memory" / "MEMORY.md";
-    assert(fs::exists(l3_memory));
+        // Verify L3 file exists
+        fs::path l3_memory = fs::path(workspace) / "memory" / "MEMORY.md";
+        assert(fs::exists(l3_memory));
 
-    std::ifstream f3(l3_memory);
-    std::string l3_content((std::istreambuf_iterator<char>(f3)), std::istreambuf_iterator<char>());
-    std::cout << "L3 Content:\n" << l3_content << std::endl;
-    assert(l3_content.find("Distillation process works") != std::string::npos);
-    f3.close();
+        std::ifstream f3(l3_memory);
+        std::string l3_content((std::istreambuf_iterator<char>(f3)), std::istreambuf_iterator<char>());
+        std::cout << "L3 Content:\n" << l3_content << std::endl;
+        assert(l3_content.find("Distillation process works") != std::string::npos);
+        f3.close();
+    }
 
     std::cout << "\n✅ Memory Distillation Test PASSED!" << std::endl;
 
     // Cleanup
-    fs::remove_all(workspace);
+    try {
+        fs::remove_all(workspace);
+    } catch (const std::exception& e) {
+        std::cerr << "Final cleanup failed: " << e.what() << std::endl;
+    }
 
     return 0;
 }

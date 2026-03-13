@@ -15,7 +15,6 @@
 #include "context.hpp"
 #include "session.hpp"
 #include "../tools/tool.hpp"
-#include <fiber.hpp>
 #include "../config.hpp"
 #include <simdjson.h>
 
@@ -66,9 +65,9 @@ public:
         const std::string& workspace,
         LLMCallFn llm_fn,
         EmbeddingFn embed_fn,
-        int max_iterations = 10
+        int max_iterations = 5
     )
-        : context_(workspace)
+        : context_(workspace, embed_fn)
         , llm_fn_(std::move(llm_fn))
         , embed_fn_(std::move(embed_fn))
         , max_iterations_(max_iterations)
@@ -87,12 +86,18 @@ public:
     std::string build_tools_json() const {
         std::string result = "[";
         bool first = true;
+        std::string names;
         for (const auto& [name, tool] : tools_) {
-            if (!first) result += ",";
+            if (!first) {
+                result += ",";
+                names += ", ";
+            }
             result += tool->schema();
+            names += name;
             first = false;
         }
         result += "]";
+        spdlog::debug("Sending tools to LLM: [{}]", names);
         return result;
     }
 
@@ -213,16 +218,24 @@ public:
                     } else if (tc.name == "memory_search") {
                         auto args = parse_arguments(tc.arguments_json);
                         std::string query = args["query"];
-                        std::vector<float> emb;
-                        if (embed_fn_) emb = embed_fn_(query);
-                        auto results = context_.memory().search(query, emb);
+                        // MemoryStore::search now handles embedding internally if empty
+                        auto results = context_.memory().search(query);
                         
                         std::stringstream ss;
                         ss << "Search Results for \"" << query << "\":\n";
+                        if (results.empty()) ss << "(No results found)\n";
                         for (const auto& r : results) {
                             ss << "- [" << r.source << "] " << r.path << ": " << r.text.substr(0, 200) << " (Score: " << r.score << ")\n";
                         }
                         output = ss.str();
+                    } else if (tc.name == "index_document") {
+                        auto args = parse_arguments(tc.arguments_json);
+                        std::string path = args["path"];
+                        std::string text = args["text"];
+                        std::vector<float> emb;
+                        if (embed_fn_) emb = embed_fn_(text);
+                        context_.memory().index().add_document(path, path, 0, 0, text, emb, "manual");
+                        output = "Document indexed: " + path;
                     } else {
                         output = "Error: unknown tool '" + tc.name + "'";
                     }
@@ -233,7 +246,9 @@ public:
 
             } else {
                 // Final answer - Index it
-                context_.memory().index_session_message(session.key, "assistant", response.content);
+                if (!response.content.empty()) {
+                    context_.memory().index_session_message(session.key, "assistant", response.content);
+                }
 
                 session.add_message("user", user_message);
                 session.add_message("assistant", response.content);

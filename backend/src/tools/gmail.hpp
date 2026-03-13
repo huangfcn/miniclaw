@@ -1,10 +1,8 @@
 #pragma once
-#include "../agent/curl_manager.hpp"
 #include "../config.hpp"
 #include "../json_util.hpp"
 #include "tool.hpp"
 #include <curl/curl.h>
-#include <fiber.hpp>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -345,19 +343,11 @@ private:
   std::string request(const std::string &url, const std::string &method,
                       const std::vector<std::string> &headers,
                       const std::string &post_data = "") {
-    struct CurlData {
-      std::string buffer;
-      fiber_t fiber;
-      std::function<void(CURLcode)> callback;
-      struct curl_slist *header_list = nullptr;
-    };
-
-    auto *data = new CurlData{"", fiber_ident(), nullptr, nullptr};
-    data->callback = [data](CURLcode code) { fiber_resume(data->fiber); };
+    std::string buffer;
+    struct curl_slist *header_list = nullptr;
 
     CURL *easy = curl_easy_init();
     curl_easy_setopt(easy, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(easy, CURLOPT_PRIVATE, &data->callback);
     curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, 30L);
 
@@ -369,37 +359,29 @@ private:
     }
 
     for (const auto &h : headers) {
-      data->header_list = curl_slist_append(data->header_list, h.c_str());
+      header_list = curl_slist_append(header_list, h.c_str());
     }
-    if (data->header_list) {
-      curl_easy_setopt(easy, CURLOPT_HTTPHEADER, data->header_list);
+    if (header_list) {
+      curl_easy_setopt(easy, CURLOPT_HTTPHEADER, header_list);
     }
 
-    auto write_cb = [](char *ptr, size_t size, size_t nmemb,
-                       void *userdata) -> size_t {
-      size_t total = size * nmemb;
-      ((CurlData *)userdata)->buffer.append(ptr, total);
-      return total;
+    auto write_cb = [](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
+      ((std::string *)userdata)->append(ptr, size * nmemb);
+      return size * nmemb;
     };
-    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION,
-                     (curl_write_callback)write_cb);
-    curl_easy_setopt(easy, CURLOPT_WRITEDATA, data);
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, (curl_write_callback)write_cb);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buffer);
 
-    CurlMultiManager::instance().add_handle(easy);
-    fiber_suspend(0);
+    CURLcode res = curl_easy_perform(easy);
 
     long response_code = 0;
     curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response_code);
-    std::string result = (response_code >= 200 && response_code < 300)
-                             ? data->buffer
-                             : "Error: HTTP " + std::to_string(response_code) +
-                                   "\n" + data->buffer;
+    std::string result = (res == CURLE_OK && response_code >= 200 && response_code < 300)
+                             ? buffer
+                             : "Error: HTTP " + std::to_string(response_code) + (res != CURLE_OK ? " (" + std::string(curl_easy_strerror(res)) + ")" : "") + "\n" + buffer;
 
-    CurlMultiManager::instance().remove_handle(easy);
-    if (data->header_list)
-      curl_slist_free_all(data->header_list);
+    if (header_list) curl_slist_free_all(header_list);
     curl_easy_cleanup(easy);
-    delete data;
 
     return result;
   }

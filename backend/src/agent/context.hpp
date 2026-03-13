@@ -30,9 +30,9 @@ public:
         "AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"
     };
 
-    explicit ContextBuilder(const std::string& workspace)
+    explicit ContextBuilder(const std::string& workspace, EmbeddingFn embed_fn = nullptr)
         : workspace_(workspace)
-        , memory_(workspace)
+        , memory_(workspace, std::move(embed_fn))
         , skills_(workspace)
     {}
 

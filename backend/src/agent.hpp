@@ -16,7 +16,7 @@ using AgentEventCallback = EventCallback;
 class SubagentManager;
 
 void init_spawn_system();
-void spawn_in_fiber(std::function<void()> task);
+void spawn_in_pool(std::function<void()> task);
 
 class Agent {
 public:
@@ -34,15 +34,18 @@ public:
     // Access to internal components for testing
     AgentLoop& loop() { return *loop_; }
 
+    // Thread-safe access to the current session ID in the current worker thread
+    static std::string current_session_id();
+
 private:
     std::unique_ptr<AgentLoop> loop_;
     std::unique_ptr<SessionManager> sessions_;
     std::unique_ptr<SubagentManager> subagents_;
 
-    // Embedding call — fiber-blocking
+    // Embedding call — blocking
     std::vector<float> embed(const std::string& text);
 
-    // LLM HTTP call — fiber-blocking, returns structured LLMResponse
+    // LLM HTTP call — blocking, returns structured LLMResponse
     LLMResponse call_llm(
         const std::vector<Message>& messages,
         const std::string& tools_json,

@@ -19,18 +19,13 @@ int main() {
     
     std::cout << "Starting Real Distillation Test..." << std::endl;
 
-    // 2. Initialize Fiber Internals
-    FiberGlobalStartup();
-    
-    // 3. Initialize Agent & FiberPool (matching main.cpp behavior)
+    // 2. Initialize Agent & FiberPool (matching main.cpp behavior)
     static Agent agent;
     int threads = 1; // Single thread for test is fine
     FiberPool::instance().init(threads, &agent);
 
-    init_spawn_system();
-
-    // The test must run in a fiber for curl/async support
-    spawn_in_fiber([]() {
+    // 3. Spawn the test task in the pool
+    FiberPool::instance().spawn([]() {
         try {
             std::cout << "[Fiber] Testing with Agent..." << std::endl;
             

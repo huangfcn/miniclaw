@@ -9,16 +9,19 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 echo "Project Root: $ROOT_DIR"
 cd "$ROOT_DIR" || exit 1
 
-# --- Configuration ---
 # Default paths relative to project root
 EXE_PATH="backend/build/miniclaw"
 if [ -f "${EXE_PATH}.exe" ]; then
     EXE_PATH="${EXE_PATH}.exe"
 fi
 
-DEST_DIR="frontend/src-tauri/binaries"
+# Allow setting destination via first argument
+DEFAULT_DEST="frontend/src-tauri/binaries"
+DEST_DIR="${1:-$DEFAULT_DEST}"
 RESOURCE_DIR="frontend/src-tauri/resources/workspace"
 WORKSPACE_SRC="frontend/miniclaw"
+
+echo "Target Destination: $DEST_DIR"
 
 # Detection of OS
 OS_TYPE="$(uname -s)"
@@ -68,6 +71,21 @@ case "$OS" in
                 echo "  + $(basename "$dll_path")"
             fi
         done
+
+        # Copy BusyBox for Windows and its dependencies
+        if [ -f "backend/tools/bin/busybox.exe" ]; then
+            echo "Copying BusyBox and its dependencies..."
+            cp -u "backend/tools/bin/busybox.exe" "$DEST_DIR/"
+            echo "  + busybox.exe"
+            
+            # Find DLLs for busybox.exe
+            ldd "backend/tools/bin/busybox.exe" | grep "=> /ucrt64" | awk '{print $3}' | while read -r dll_path; do
+                if [ -f "$dll_path" ]; then
+                    cp -u "$dll_path" "$DEST_DIR/"
+                    echo "  + $(basename "$dll_path") (for busybox)"
+                fi
+            done
+        fi
         ;;
     linux)
         # Find shared libraries NOT in standard system paths

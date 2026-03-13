@@ -1,7 +1,7 @@
 #pragma once
 // SpawnTool — creates a background subagent task.
 
-#include <fiber.hpp>
+#include "agent.hpp"
 #include <string>
 #include <memory>
 #include <map>
@@ -26,14 +26,10 @@ public:
         auto label_it = args.find("label");
         if (label_it != args.end()) label = label_it->second;
 
-        // Retrieve session_id from current fiber's local storage (Index 0)
-        auto* fiber = fib::Fiber::self();
-        uint64_t session_ptr_val = fiber->getLocalData(0);
-        std::string session_id;
-        if (session_ptr_val) {
-            session_id = *reinterpret_cast<std::string*>(session_ptr_val);
-        } else {
-            return "Error: Session context missing in fiber task.";
+        // Retrieve session_id from thread local storage via Agent
+        std::string session_id = Agent::current_session_id();
+        if (session_id.empty()) {
+            return "Error: Session context missing in worker thread.";
         }
 
         return manager_.spawn(task_it->second, label, session_id);

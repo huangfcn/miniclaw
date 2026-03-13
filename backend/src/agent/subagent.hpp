@@ -8,6 +8,7 @@
 #include <mutex>
 #include <chrono>
 #include <spdlog/spdlog.h>
+#include "fiber_pool.hpp"
 
 #include "loop.hpp"
 #include "session.hpp"
@@ -25,45 +26,18 @@ public:
         std::string task_id = "sub_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()).substr(10);
         std::string display_label = label.empty() ? (task.length() > 30 ? task.substr(0, 30) + "..." : task) : label;
 
-        // Run in the fiber scheduler thread
-        spawn_in_fiber([this, task, display_label, session_id, task_id]() {
-            run_subagent(task, display_label, session_id, task_id);
-        });
-
-        return "Subagent [" + display_label + "] started (id: " + task_id + "). I'll notify you when it completes.";
-    }
-
-private:
-    std::string workspace_;
-    LLMCallFn llm_fn_;
-    EmbeddingFn embed_fn_;
-
-    struct SubData {
-        SubagentManager* self;
-        std::string task;
-        std::string label;
-        std::string session_id;
-        std::string task_id;
-    };
-
-    void run_subagent(const std::string& task, const std::string& label, const std::string& session_id, const std::string& task_id) {
-        spdlog::info("Subagent [{}] starting task: {}", task_id, label);
-        
-        auto* data = new SubData{this, task, label, session_id, task_id};
-
-        fiber_create([](void* arg) -> void* {
-            auto* d = (SubData*)arg;
+        FiberPool::instance().spawn([this, task, display_label, session_id, task_id]() {
+            spdlog::info("Subagent [{}] starting task: {}", task_id, display_label);
             
-            // Set session_id in Fiber Local Storage (Index 0)
-            auto* fiber = fib::Fiber::self();
-            fiber->setLocalData(0, reinterpret_cast<uint64_t>(&d->session_id));
-
+            // We need to set the session context for any tool calls emitted by the subagent
+            // The Agent::run would normally do this, but for background subagents we do it here.
+            // However, t_session_id is static thread_local in agent.cpp. 
+            // We'll trust that subagents don't need nesting of sessions for now or we might need 
+            // a better way to propagate it.
+            
             try {
-                spdlog::debug("Subagent [{}] loop start", d->task_id);
-                // Setup a local loop for the subagent
-                AgentLoop sub_loop(d->self->workspace_, d->self->llm_fn_, d->self->embed_fn_, 15);
+                AgentLoop sub_loop(workspace_, llm_fn_, embed_fn_, 15);
                 
-                // Register tools
                 sub_loop.register_tool("exec",       std::make_shared<TerminalTool>());
                 sub_loop.register_tool("read_file",  std::make_shared<ReadFileTool>());
                 sub_loop.register_tool("write_file", std::make_shared<WriteFileTool>());
@@ -73,27 +47,27 @@ private:
                 sub_loop.register_tool("web_fetch",  std::make_shared<WebFetchTool>());
 
                 Session sub_session;
-                sub_session.key = "subagent:" + d->task_id;
+                sub_session.key = "subagent:" + task_id;
                 
-                std::string final_result;
-                sub_loop.process(d->task, sub_session, [](const AgentEvent& ev) {});
+                sub_loop.process(task, sub_session, [](const AgentEvent& ev) {}, "", session_id);
 
+                std::string final_result;
                 if (!sub_session.messages.empty() && sub_session.messages.back().role == "assistant") {
                     final_result = sub_session.messages.back().content;
                 } else {
                     final_result = "Task completed but no final response was generated.";
                 }
 
-                spdlog::info("Subagent [{}] completed", d->task_id);
-                d->self->announce_result(d->label, d->task, final_result, d->session_id);
+                spdlog::info("Subagent [{}] completed", task_id);
+                announce_result(display_label, task, final_result, session_id);
             } catch (const std::exception& e) {
-                spdlog::error("Subagent [{}] exception: {}", d->task_id, e.what());
+                spdlog::error("Subagent [{}] exception: {}", task_id, e.what());
             } catch (...) {
-                spdlog::error("Subagent [{}] unknown exception", d->task_id);
+                spdlog::error("Subagent [{}] unknown exception", task_id);
             }
-            delete d;
-            return nullptr;
-        }, data, NULL, 1024 * 1024); // 2MB stack
+        });
+
+        return "Subagent [" + display_label + "] started (id: " + task_id + "). I'll notify you when it completes.";
     }
 
     void announce_result(const std::string& label, const std::string& task, const std::string& result, const std::string& session_id) {
@@ -106,4 +80,9 @@ private:
         
         spdlog::info("Subagent result announced to session: {}", session_id);
     }
+
+private:
+    std::string workspace_;
+    LLMCallFn llm_fn_;
+    EmbeddingFn embed_fn_;
 };

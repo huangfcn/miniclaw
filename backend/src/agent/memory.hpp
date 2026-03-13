@@ -16,16 +16,24 @@ namespace fs = std::filesystem;
 
 #include "memory_index.hpp"
 #include "config.hpp"
+#include <functional>
+
+using EmbeddingFn = std::function<std::vector<float>(const std::string& text)>;
 
 class MemoryStore {
 public:
-    explicit MemoryStore(const std::string& workspace)
+    explicit MemoryStore(const std::string& workspace, EmbeddingFn embed_fn = nullptr)
         : workspace_(workspace)
         , memory_dir_(fs::path(workspace) / "memory")
         , memory_file_(memory_dir_ / "MEMORY.md")
         , index_(std::make_unique<MemoryIndex>(fs::path(workspace) / "index", Config::instance().embedding_dimension()))
+        , embed_fn_(std::move(embed_fn))
     {
         fs::create_directories(memory_dir_);
+    }
+
+    void set_embedding_fn(EmbeddingFn embed_fn) {
+        embed_fn_ = std::move(embed_fn);
     }
 
     // ── Long-term memory (MEMORY.md - Layer 3) ───────────────────────────────
@@ -37,7 +45,9 @@ public:
     void write_long_term(const std::string& content) {
         write_file(memory_file_, content);
         // Index L3
-        index_->add_document("L3_MEMORY", memory_file_.string(), 0, 0, content, {}, "long-term");
+        std::vector<float> emb;
+        if (embed_fn_) emb = embed_fn_(content);
+        index_->add_document("L3_MEMORY", memory_file_.string(), 0, 0, content, emb, "long-term");
     }
 
     // ── Daily Logs (memory/YYYY-MM-DD.md - Layer 2) ─────────────────────────
@@ -56,21 +66,29 @@ public:
 
         // Index the new entry (simplified: re-index full file or just the chunk)
         // For simplicity, we'll index this chunk. In a real system, we'd want more structure.
+        std::vector<float> emb;
+        if (embed_fn_) emb = embed_fn_(content);
         std::string id = "L2_" + ss.str() + "_" + std::to_string(std::time(nullptr));
-        index_->add_document(id, daily_file.string(), 0, 0, content, {}, "memory");
+        index_->add_document(id, daily_file.string(), 0, 0, content, emb, "memory");
     }
 
     // ── Search ───────────────────────────────────────────────────────────────
 
     std::vector<SearchResult> search(const std::string& query, const std::vector<float>& embedding = {}) {
-        return index_->search(query, embedding);
+        std::vector<float> emb = embedding;
+        if (emb.empty() && !query.empty() && embed_fn_) {
+            emb = embed_fn_(query);
+        }
+        return index_->search(query, emb);
     }
 
     // ── Indexing Session (Layer 1) ──────────────────────────────────────────
 
     void index_session_message(const std::string& session_id, const std::string& role, const std::string& content) {
+        std::vector<float> emb;
+        if (embed_fn_) emb = embed_fn_(content);
         std::string id = "L1_" + session_id + "_" + std::to_string(std::time(nullptr));
-        index_->add_document(id, "session:" + session_id, 0, 0, "[" + role + "] " + content, {}, "sessions");
+        index_->add_document(id, "session:" + session_id, 0, 0, "[" + role + "] " + content, emb, "sessions");
     }
 
     // ── Context for system prompt ─────────────────────────────────────────────
@@ -106,6 +124,7 @@ private:
     fs::path memory_dir_;
     fs::path memory_file_;
     std::unique_ptr<MemoryIndex> index_;
+    EmbeddingFn embed_fn_;
 
     static std::string read_file(const fs::path& p) {
         if (!fs::exists(p)) return "";
