@@ -4,6 +4,7 @@
 #include <memory>
 #include <cstdio>
 #include <map>
+#include "busybox.hpp"
 
 class TerminalTool : public Tool {
 public:
@@ -23,6 +24,10 @@ public:
     }
 
     std::string execute(const std::string& input) override {
+#if defined(_WIN32)
+        static BusyBoxTool bb;
+        return bb.execute(input);
+#else
         std::array<char, 4096> buffer;
         std::string result;
         std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(input.c_str(), "r"), pclose);
@@ -34,5 +39,6 @@ public:
         }
         if (result.empty()) result = "(no output)";
         return result;
+#endif
     }
 };
