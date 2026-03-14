@@ -9,6 +9,12 @@
 
 namespace fs = std::filesystem;
 
+// Mock FiberNode for tests (no real fiber infrastructure)
+#include "agent/fiber_pool.hpp"
+thread_local FiberNode* g_current_node = nullptr;
+FiberNode* FiberNode::current() { return nullptr; }
+void FiberNode::spawn(std::function<void()> task) {}
+
 // Mock LLM for distillation
 LLMResponse mock_distill_llm(
     const std::vector<Message>& messages, 

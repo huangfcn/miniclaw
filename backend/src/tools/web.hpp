@@ -24,6 +24,7 @@ inline std::string curl_fetch(const std::string& url, const std::vector<std::str
 
     auto* data = new CurlData{ "", fiber_ident(), nullptr, nullptr };
     data->callback = [data](CURLcode code) {
+        // SAFETY: Called by CurlMultiManager on the thread that initiated the fetch (owning fiber thread).
         fiber_resume(data->fiber);
     };
 

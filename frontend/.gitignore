@@ -29,3 +29,5 @@ Cargo.lock
 # --- Junk ---
 /gui.tar.gz
 temp/
+
+# lock

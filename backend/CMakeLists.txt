@@ -8,6 +8,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
+
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Tell CMake where to find OpenMP for Apple Clang
+    set(OpenMP_C_FLAGS "-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include")
+    set(OpenMP_C_LIB_NAMES "omp")
+    set(OpenMP_omp_LIBRARY "/opt/homebrew/opt/libomp/lib/libomp.dylib")
+    
+    set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include")
+    set(OpenMP_CXX_LIB_NAMES "omp")
+endif()
+
 find_package(OpenMP REQUIRED)
 
 # Define directories early for all targets
@@ -198,6 +209,8 @@ target_include_directories(test_agent_loop PRIVATE
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
 )
 target_link_libraries(test_agent_loop PRIVATE 
     pthread
@@ -248,10 +261,12 @@ target_include_directories(test_memory_index PRIVATE
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
     ${FIBER_DIR}/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
 )
 target_link_libraries(test_memory_index PRIVATE 
-    pthread
     CURL::libcurl
+    pthread
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
@@ -462,3 +477,5 @@ else()
     )
     target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
 endif()
+
+

@@ -49,6 +49,8 @@ BOOL WINAPI console_handler(DWORD ctrl_type) {
 }
 #endif
 
+static std::atomic<int> ctrl_c_count{0};
+
 void signal_handler(int signum) {
   auto now = std::chrono::steady_clock::now();
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -56,13 +58,26 @@ void signal_handler(int signum) {
                 .count();
   auto last = last_ctrl_c_timestamp.exchange(ms);
 
-  if (ms - last <= 1000 && last != 0) {
+  int count = ++ctrl_c_count;
+  if (ms - last > 1000) {
+    count = 1;
+    ctrl_c_count = 1;
+  }
+
+  if (count >= 3) {
+    const char msg[] = "\nThird Ctrl-C received. Force exiting...\n";
+    [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    _exit(1);
+  }
+
+  if (count >= 2) {
     const char msg[] =
         "\nReceived second Ctrl-C within 1s, initiating graceful shutdown...\n";
     [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
     miniclaw_trigger_shutdown();
   } else {
-    const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit.\n";
+    const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit (or "
+                       "3 times to force kill).\n";
     [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
   }
 }
@@ -162,7 +177,11 @@ int main() {
 #if defined(_WIN32)
   SetConsoleCtrlHandler(console_handler, TRUE);
 #else
-  std::signal(SIGINT, signal_handler);
+  struct sigaction sa;
+  sa.sa_handler = signal_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sigaction(SIGINT, &sa, NULL);
 #endif
 
   // Keep the main thread alive

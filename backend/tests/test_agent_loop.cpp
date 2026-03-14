@@ -3,6 +3,12 @@
 #include <filesystem>
 #include "agent/loop.hpp"
 #include "tools/file.hpp"
+#include "agent/fiber_pool.hpp"
+
+// Mock FiberNode for tests (no real fiber infrastructure)
+thread_local FiberNode* g_current_node = nullptr;
+FiberNode* FiberNode::current() { return nullptr; }
+void FiberNode::spawn(std::function<void()> task) {}
 
 // Mock LLM: on first call returns a native tool_call (write_file),
 // on second call returns the final answer.

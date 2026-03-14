@@ -33,6 +33,9 @@ echo "Detected OS: $OS"
 
 # Target Triple Detection (Simplified for common architectures)
 ARCH="$(uname -m)"
+if [ "$ARCH" = "arm64" ]; then
+    ARCH="aarch64"
+fi
 case "$OS" in
     windows) TARGET_TRIPLE="${ARCH}-pc-windows-msvc";; # MSYS2 often produces this or gnu
     macos)   TARGET_TRIPLE="${ARCH}-apple-darwin";;
@@ -64,7 +67,7 @@ case "$OS" in
         fi
         ldd "$EXE_PATH" | grep "=> /ucrt64" | awk '{print $3}' | while read -r dll_path; do
             if [ -f "$dll_path" ]; then
-                cp -u "$dll_path" "$DEST_DIR/"
+                cp "$dll_path" "$DEST_DIR/"
                 echo "  + $(basename "$dll_path")"
             fi
         done
@@ -73,7 +76,7 @@ case "$OS" in
         # Find shared libraries NOT in standard system paths
         ldd "$EXE_PATH" | grep "/" | grep -v "/lib/" | grep -v "/usr/lib/" | awk '{print $3}' | while read -r lib_path; do
             if [ -f "$lib_path" ]; then
-                cp -u "$lib_path" "$DEST_DIR/"
+                cp "$lib_path" "$DEST_DIR/"
                 echo "  + $(basename "$lib_path")"
             fi
         done
@@ -82,7 +85,7 @@ case "$OS" in
         # otool -L output parsing
         otool -L "$EXE_PATH" | grep "/" | grep -v "/usr/lib/" | grep -v "/System/" | awk '{print $1}' | while read -r lib_path; do
             if [ -f "$lib_path" ]; then
-                cp -u "$lib_path" "$DEST_DIR/"
+                cp "$lib_path" "$DEST_DIR/"
                 echo "  + $(basename "$lib_path")"
             fi
         done
@@ -97,7 +100,7 @@ if [[ "$OS" == "windows" ]]; then
 fi
 
 echo "Copying sidecar: $SIDECAR_NAME"
-cp -u "$EXE_PATH" "$DEST_DIR/$SIDECAR_NAME"
+cp "$EXE_PATH" "$DEST_DIR/$SIDECAR_NAME"
 
 # --- Workspace Asset Bundling ---
 echo "Bundling workspace assets into $RESOURCE_DIR..."
@@ -105,19 +108,19 @@ FILES=("AGENTS.md" "SOUL.md" "USER.md" "TOOLS.md" "IDENTITY.md")
 
 for f in "${FILES[@]}"; do
     if [ -f "$WORKSPACE_SRC/$f" ]; then
-        cp -u "$WORKSPACE_SRC/$f" "$RESOURCE_DIR/"
+        cp "$WORKSPACE_SRC/$f" "$RESOURCE_DIR/"
     fi
 done
 
 # Copy directories
 if [ -d "$WORKSPACE_SRC/skills" ]; then
     echo "  + skills/"
-    cp -ru "$WORKSPACE_SRC/skills" "$RESOURCE_DIR/"
+    cp -R "$WORKSPACE_SRC/skills" "$RESOURCE_DIR/"
 fi
 
 if [ -d "$WORKSPACE_SRC/config" ]; then
     echo "  + config/"
-    cp -ru "$WORKSPACE_SRC/config" "$RESOURCE_DIR/"
+    cp -R "$WORKSPACE_SRC/config" "$RESOURCE_DIR/"
 fi
 
 echo "Done. Deployment assets prepared in $DEST_DIR and $RESOURCE_DIR"

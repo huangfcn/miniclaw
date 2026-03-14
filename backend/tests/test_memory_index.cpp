@@ -3,7 +3,12 @@
 #include <string>
 #include <cassert>
 #include "../src/agent/memory_index.hpp"
+#include "../src/agent/fiber_pool.hpp"
 #include <spdlog/spdlog.h>
+
+// Mock FiberNode for tests
+FiberNode* FiberNode::current() { return nullptr; }
+void FiberNode::spawn(std::function<void()> task) {}
 
 int main() {
     spdlog::set_level(spdlog::level::debug);

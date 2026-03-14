@@ -1,3 +1,4 @@
+#include "App.h"
 #include "fiber_pool.hpp"
 #include "curl_manager.hpp"
 #include <spdlog/spdlog.h>
@@ -6,10 +7,26 @@
 #include "agent.hpp"
 #include "json_util.hpp"
 
+extern "C" {
+struct us_listen_socket_t;
+void us_listen_socket_close(int ssl, struct us_listen_socket_t *ls);
+}
+
+thread_local FiberNode* g_current_node = nullptr;
+
+FiberNode* FiberNode::current() {
+    return g_current_node;
+}
+
 FiberNode::FiberNode(Agent* agent) : agent_(agent) {
     uv_loop_init(&loop_);
     uv_async_init(&loop_, &async_, [](uv_async_t* handle) {
         auto* self = (FiberNode*)handle->data;
+        if (!self->running_.load() && self->listen_socket_) {
+            us_listen_socket_close(0, self->listen_socket_);
+            self->listen_socket_ = nullptr;
+        }
+
         std::unique_lock<std::mutex> lock(self->mtx_);
         while (!self->tasks_.empty()) {
             auto task = std::move(self->tasks_.front());
@@ -24,7 +41,7 @@ FiberNode::FiberNode(Agent* agent) : agent_(agent) {
 
 FiberNode::~FiberNode() {
     stop();
-    if (app_) delete app_;
+    if (app_) delete static_cast<uWS::App*>(app_);
     uv_loop_close(&loop_);
 }
 
@@ -34,10 +51,9 @@ void FiberNode::start() {
 }
 
 void FiberNode::stop() {
-    if (running_) {
-        running_ = false;
-        // In uWS, we'd normally close the listen socket, but for simplicity:
-        uv_stop(&loop_);
+    if (running_.exchange(false)) {
+        // Wake up libuv loop instead of thread-unsafe uv_stop
+        uv_async_send(&async_);
         if (thread_.joinable()) thread_.join();
     }
 }
@@ -52,7 +68,10 @@ void FiberNode::spawn(std::function<void()> task) {
 
 void FiberNode::thread_func() {
     spdlog::info("Fiber node thread started: {}", std::hash<std::thread::id>{}(std::this_thread::get_id()));
-    
+
+    // Set current node for this thread
+    g_current_node = this;
+
     // Initialize Fiber for this thread
     FiberThreadStartup();
 
@@ -65,7 +84,7 @@ void FiberNode::thread_func() {
     // Initialize uWebSockets App
     app_ = new uWS::App();
 
-    app_->get("/api/health", [](auto *res, auto *req) {
+    static_cast<uWS::App*>(app_)->get("/api/health", [](auto *res, auto *req) {
         res->end("OK");
     }).options("/*", [](auto *res, auto *req) {
         res->writeHeader("Access-Control-Allow-Origin", "*")
@@ -264,9 +283,10 @@ void FiberNode::thread_func() {
     });
 
     // Listen with REUSE_PORT (default in many uWS versions or handled by OS)
-    app_->listen(9000, LIBUS_LISTEN_DEFAULT, [this](auto *listen_socket) {
+    static_cast<uWS::App*>(app_)->listen(9000, LIBUS_LISTEN_DEFAULT, [this](auto *listen_socket) {
         if (listen_socket) {
             spdlog::info("FiberNode listening on port 9000");
+            this->listen_socket_ = listen_socket;
         } else {
             spdlog::error("FiberNode failed to listen on port 9000");
         }
@@ -274,20 +294,31 @@ void FiberNode::thread_func() {
 
     // Keep-alive fiber to prevent scheduler from exiting when idle
     fiber_create([](void* arg) -> void* {
-        bool* running = (bool*)arg;
-        while (*running) {
-            fiber_usleep(1000000); // 1s
+        std::atomic<bool>* running = (std::atomic<bool>*)arg;
+        while (running->load()) {
+            fiber_usleep(100000); // 100ms
         }
+        spdlog::info("Keep-alive fiber gracefully exiting");
         return nullptr;
     }, &running_, NULL, 4096);
 
     // Pulse Libuv from the Fiber Scheduler
     fibthread_args_t fiber_args;
     fiber_args.fiberSchedulerCallback = [](void* arg) -> bool {
-        uv_run((uv_loop_t*)arg, UV_RUN_NOWAIT);
-        return true;
+        FiberNode* self = (FiberNode*)arg;
+        uv_run(&self->loop_, UV_RUN_NOWAIT);
+        if (!self->running_.load()) {
+            FibTCB* current = fiber_ident();
+            if (current && current->scheddata) {
+                int left = current->scheddata->nLocalFibTasks;
+                if (left != self->last_logged_fibers_.exchange(left)) {
+                    spdlog::info("Fiber scheduler loop shutting down... Fibers remaining: {}", left);
+                }
+            }
+        }
+        return self->running_.load();
     };
-    fiber_args.args = &loop_;
+    fiber_args.args = this;
 
     fiber_thread_entry(&fiber_args);
     spdlog::info("Fiber node thread exiting");
