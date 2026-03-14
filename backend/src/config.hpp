@@ -221,6 +221,16 @@ public:
     return p;
   }
 
+  // Tools
+  std::string tools_path() const {
+    std::string p = get<std::string>("tools", "path", "tools");
+    fs::path path(p);
+    if (path.is_relative()) {
+      return (fs::path(memory_workspace()) / path).string();
+    }
+    return p;
+  }
+
   // Prompts
   std::string load_prompt(const std::string &name,
                           const std::string &default_prompt) const {
