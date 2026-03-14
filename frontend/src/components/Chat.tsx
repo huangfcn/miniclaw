@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react";
-import { Send, User, Bot, AlertTriangle, Loader2 } from "lucide-react";
+import { Send, User, Bot, AlertTriangle, Loader2, PlusCircle } from "lucide-react";
 import axios from "axios";
-import { useAppContext } from "../contexts/AppContext";
+import { useAppContext, generateSessionId } from "../contexts/AppContext";
 
 interface Message {
   role: "user" | "bot";
@@ -34,26 +34,18 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
     }));
 
     try {
-      // The miniclaw backend (C++) listens on port 9000 by default (from config.yaml)
-      // We use axios to send the POST request
       const response = await axios.post("http://localhost:9000/api/chat", {
         message: input,
-        session_id: "default",
+        session_id: appState.chat.sessionId,
         model: "miniclaw"
       }, {
-        // SSE support if needed, but for simplicity let's assume it's buffered for now
-        // Or handle SSE streaming here
         responseType: 'text',
-        onDownloadProgress: (_progressEvent) => {
-          // Placeholder for real SSE handling if we want to stream
-        }
+        onDownloadProgress: (_progressEvent) => {}
       });
 
-      // Simple parsing of SSE for now (very basic)
       const dataStr = response.data;
       const botMessage: Message = { role: "bot", content: "" };
 
-      // Basic SSE parsing logic
       const lines = dataStr.split('\n');
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -103,6 +95,19 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
     }
   };
 
+  const handleNewChat = () => {
+    setAppState(prev => ({
+      ...prev,
+      chat: {
+        ...prev.chat,
+        messages: [],
+        input: "",
+        sessionId: generateSessionId(),
+        isLoading: false
+      }
+    }));
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-black/20 backdrop-blur-xl">
       <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
@@ -136,6 +141,19 @@ const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
           </div>
         )}
       </div>
+
+      {isBackendRunning && (
+        <div className="px-6 py-2 flex justify-end">
+          <button
+            onClick={handleNewChat}
+            disabled={isLoading}
+            className="flex items-center space-x-2 text-[10px] font-bold uppercase tracking-widest text-indigo-400 hover:text-indigo-300 transition-colors py-1 px-3 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-full border border-indigo-500/10"
+          >
+            <PlusCircle size={12} />
+            <span>New Chat</span>
+          </button>
+        </div>
+      )}
 
       <div className="p-6 border-t border-gray-800 bg-black/40 shadow-inner">
         <div className="relative max-w-4xl mx-auto group">
