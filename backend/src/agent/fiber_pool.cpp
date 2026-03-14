@@ -307,15 +307,6 @@ void FiberNode::thread_func() {
     fiber_args.fiberSchedulerCallback = [](void* arg) -> bool {
         FiberNode* self = (FiberNode*)arg;
         uv_run(&self->loop_, UV_RUN_NOWAIT);
-        if (!self->running_.load()) {
-            FibTCB* current = fiber_ident();
-            if (current && current->scheddata) {
-                int left = current->scheddata->nLocalFibTasks;
-                if (left != self->last_logged_fibers_.exchange(left)) {
-                    spdlog::info("Fiber scheduler loop shutting down... Fibers remaining: {}", left);
-                }
-            }
-        }
         return self->running_.load();
     };
     fiber_args.args = this;
