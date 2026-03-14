@@ -209,6 +209,8 @@ target_include_directories(test_agent_loop PRIVATE
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
 )
 target_link_libraries(test_agent_loop PRIVATE 
     pthread
@@ -259,10 +261,12 @@ target_include_directories(test_memory_index PRIVATE
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
     ${FIBER_DIR}/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
 )
 target_link_libraries(test_memory_index PRIVATE 
-    pthread
     CURL::libcurl
+    pthread
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
@@ -473,3 +477,5 @@ else()
     )
     target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
 endif()
+
+

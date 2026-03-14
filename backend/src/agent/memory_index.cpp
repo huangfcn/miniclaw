@@ -24,6 +24,14 @@
 #include <lucene++/Term.h>
 #include <filesystem>
 #include <spdlog/spdlog.h>
+#include <fiber.h>
+#include <mutex>
+#include <queue>
+#include <condition_variable>
+#include <thread>
+#include <atomic>
+#include "fiber_pool.hpp"
+#include <functional>
 
 namespace fs = std::filesystem;
 using namespace Lucene;
@@ -38,6 +46,27 @@ struct MemoryIndex::Impl {
     String lucene_path;
     AnalyzerPtr analyzer;
     DirectoryPtr directory;
+
+    // Service thread components
+    struct Request {
+        enum Type { ADD, SEARCH, CLEAR } type;
+        std::string id, path, text, source;
+        int start_line, end_line;
+        std::vector<float> embedding;
+        std::string query;
+        std::vector<float> query_embedding;
+        int top_k;
+        fiber_t calling_fiber;
+        FiberNode* calling_node;
+        std::vector<SearchResult>* search_results = nullptr;
+        std::function<void()> on_complete;
+    };
+
+    std::thread worker_thread;
+    std::queue<Request> queue;
+    std::mutex queue_mutex;
+    std::condition_variable queue_cv;
+    std::atomic<bool> running{true};
 
     Impl(const std::string& path, int dim) : index_path(path), dimension(dim) {
         fs::create_directories(path);
@@ -73,9 +102,74 @@ struct MemoryIndex::Impl {
         fs::create_directories(path + "/lucene");
         analyzer = newLucene<StandardAnalyzer>(LuceneVersion::LUCENE_CURRENT);
         directory = FSDirectory::open(lucene_path);
+
+        worker_thread = std::thread(&Impl::worker_loop, this);
     }
 
-    void add_doc(
+    ~Impl() {
+        running = false;
+        queue_cv.notify_all();
+        if (worker_thread.joinable()) worker_thread.join();
+    }
+
+    void clear_internal() {
+        faiss_index = std::make_unique<faiss::IndexFlatIP>(dimension);
+        doc_ids.clear();
+        
+        fs::remove(fs::path(index_path) / "faiss.index");
+        fs::remove(fs::path(index_path) / "doc_ids.txt");
+        
+        try {
+            if (directory && analyzer) {
+                IndexWriterPtr writer = newLucene<IndexWriter>(directory, analyzer, false, IndexWriter::MaxFieldLengthLIMITED);
+                writer->deleteAll();
+                writer->close();
+            }
+        } catch (const std::exception& e) {
+            spdlog::warn("Lucene clear failed: {}", e.what());
+        } catch (...) {
+            spdlog::warn("Lucene clear failed with unknown error");
+        }
+    }
+
+    void worker_loop() {
+        while (running) {
+            Request req;
+            {
+                std::unique_lock<std::mutex> lock(queue_mutex);
+                queue_cv.wait(lock, [this] { return !queue.empty() || !running; });
+                if (!running && queue.empty()) break;
+                req = std::move(queue.front());
+                queue.pop();
+            }
+
+            try {
+                switch (req.type) {
+                case Request::ADD:
+                    add_doc_internal(req.id, req.path, req.start_line, req.end_line, req.text, req.embedding, req.source);
+                    break;
+                case Request::SEARCH:
+                    if (req.search_results) {
+                        *req.search_results = search_internal(req.query, req.query_embedding, req.top_k);
+                    }
+                    break;
+                case Request::CLEAR:
+                    clear_internal();
+                    break;
+                }
+            } catch (const std::exception& e) {
+                spdlog::error("Exception in MemoryIndex worker thread: {}", e.what());
+            } catch (...) {
+                spdlog::error("Unknown exception in MemoryIndex worker thread");
+            }
+
+            if (req.on_complete) {
+                req.on_complete();
+            }
+        }
+    }
+
+    void add_doc_internal(
         const std::string& id,
         const std::string& path,
         int start_line,
@@ -124,7 +218,7 @@ struct MemoryIndex::Impl {
         }
     }
 
-    std::vector<SearchResult> search(
+    std::vector<SearchResult> search_internal(
         const std::string& query,
         const std::vector<float>& query_embedding,
         int top_k
@@ -304,7 +398,50 @@ void MemoryIndex::add_document(
     const std::vector<float>& embedding,
     const std::string& source
 ) {
-    impl_->add_doc(id, path, start_line, end_line, text, embedding, source);
+    Impl::Request req;
+    req.type = Impl::Request::ADD;
+    req.id = id;
+    req.path = path;
+    req.start_line = start_line;
+    req.end_line = end_line;
+    req.text = text;
+    req.embedding = embedding;
+    req.source = source;
+    
+    auto calling_fiber = fiber_ident();
+    auto calling_node = FiberNode::current();
+
+    if (calling_node) {
+        req.on_complete = [calling_node, calling_fiber]() {
+            calling_node->spawn([calling_fiber]() {
+                fiber_resume(calling_fiber);
+            });
+        };
+        {
+            std::lock_guard<std::mutex> lock(impl_->queue_mutex);
+            impl_->queue.push(std::move(req));
+        }
+        impl_->queue_cv.notify_one();
+        fiber_suspend(0);
+    } else {
+        std::condition_variable cv;
+        std::mutex mtx;
+        bool done = false;
+        req.on_complete = [&cv, &mtx, &done]() {
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                done = true;
+            }
+            cv.notify_one();
+        };
+        {
+            std::lock_guard<std::mutex> lock(impl_->queue_mutex);
+            impl_->queue.push(std::move(req));
+        }
+        impl_->queue_cv.notify_one();
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&done] { return done; });
+    }
 }
 
 std::vector<SearchResult> MemoryIndex::search(
@@ -312,16 +449,87 @@ std::vector<SearchResult> MemoryIndex::search(
     const std::vector<float>& query_embedding,
     int top_k
 ) {
-    return impl_->search(query, query_embedding, top_k);
+    std::vector<SearchResult> results;
+    Impl::Request req;
+    req.type = Impl::Request::SEARCH;
+    req.query = query;
+    req.query_embedding = query_embedding;
+    req.top_k = top_k;
+    req.search_results = &results;
+    
+    auto calling_fiber = fiber_ident();
+    auto calling_node = FiberNode::current();
+
+    if (calling_node) {
+        req.on_complete = [calling_node, calling_fiber]() {
+            calling_node->spawn([calling_fiber]() {
+                fiber_resume(calling_fiber);
+            });
+        };
+        {
+            std::lock_guard<std::mutex> lock(impl_->queue_mutex);
+            impl_->queue.push(std::move(req));
+        }
+        impl_->queue_cv.notify_one();
+        fiber_suspend(0);
+    } else {
+        std::condition_variable cv;
+        std::mutex mtx;
+        bool done = false;
+        req.on_complete = [&cv, &mtx, &done]() {
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                done = true;
+            }
+            cv.notify_one();
+        };
+        {
+            std::lock_guard<std::mutex> lock(impl_->queue_mutex);
+            impl_->queue.push(std::move(req));
+        }
+        impl_->queue_cv.notify_one();
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&done] { return done; });
+    }
+    return results;
 }
 
 void MemoryIndex::clear() {
-    // Basic clear: recreate Faiss and Lucene dir
-    impl_->faiss_index = std::make_unique<faiss::IndexFlatIP>(impl_->dimension);
-    impl_->doc_ids.clear();
+    Impl::Request req;
+    req.type = Impl::Request::CLEAR;
     
-    fs::remove(fs::path(impl_->index_path) / "faiss.index");
-    fs::remove(fs::path(impl_->index_path) / "doc_ids.txt");
-    
-    // Lucene clear would need writer->deleteAll()
+    auto calling_fiber = fiber_ident();
+    auto calling_node = FiberNode::current();
+
+    if (calling_node) {
+        req.on_complete = [calling_node, calling_fiber]() {
+            calling_node->spawn([calling_fiber]() {
+                fiber_resume(calling_fiber);
+            });
+        };
+        {
+            std::lock_guard<std::mutex> lock(impl_->queue_mutex);
+            impl_->queue.push(std::move(req));
+        }
+        impl_->queue_cv.notify_one();
+        fiber_suspend(0);
+    } else {
+        std::condition_variable cv;
+        std::mutex mtx;
+        bool done = false;
+        req.on_complete = [&cv, &mtx, &done]() {
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                done = true;
+            }
+            cv.notify_one();
+        };
+        {
+            std::lock_guard<std::mutex> lock(impl_->queue_mutex);
+            impl_->queue.push(std::move(req));
+        }
+        impl_->queue_cv.notify_one();
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&done] { return done; });
+    }
 }

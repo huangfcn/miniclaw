@@ -353,6 +353,7 @@ private:
     };
 
     auto *data = new CurlData{"", fiber_ident(), nullptr, nullptr};
+    // SAFETY: Triggered by CurlMultiManager on the fiber's owning thread.
     data->callback = [data](CURLcode code) { fiber_resume(data->fiber); };
 
     CURL *easy = curl_easy_init();

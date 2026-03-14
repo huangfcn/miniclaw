@@ -8,7 +8,6 @@
 #include <functional>
 #include <memory>
 #include <atomic>
-#include "App.h"
 
 // Forward declaration for Agent
 class Agent;
@@ -24,6 +23,7 @@ public:
     // Spawn a task into this node's loop/scheduler
     void spawn(std::function<void()> task);
 
+    static FiberNode* current();
     uv_loop_t* loop() { return &loop_; }
 
 private:
@@ -34,10 +34,12 @@ private:
     std::thread thread_;
     std::mutex mtx_;
     std::queue<std::function<void()>> tasks_;
-    bool running_ = false;
+    std::atomic<bool> running_{false};
 
     Agent* agent_;
-    uWS::App* app_ = nullptr;
+    void* app_ = nullptr;
+    struct us_listen_socket_t *listen_socket_ = nullptr;
+    std::atomic<int> last_logged_fibers_{-1};
 };
 
 class FiberPool {

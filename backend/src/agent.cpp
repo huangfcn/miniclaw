@@ -199,6 +199,8 @@ std::vector<float> Agent::embed(const std::string &text) {
   data->fiber = fiber_ident();
   CURL *easy = curl_easy_init();
 
+  // SAFETY: completion_cb is called by CurlMultiManager, which is thread_local
+  // and attached to the owning FiberNode's loop. Thus fiber_resume runs on the correct thread.
   data->completion_cb = [data, easy](CURLcode) { fiber_resume(data->fiber); };
 
   std::string payload = "{\"model\":\"" + model + "\",\"input\":\"" +
@@ -340,6 +342,7 @@ LLMResponse Agent::call_llm(const std::vector<Message> &messages,
             "Error: LLM API returned HTTP " + std::to_string(http_code);
       }
     }
+    // SAFETY: Triggered by CurlMultiManager on the owning thread's loop.
     fiber_resume(data->fiber);
   };
 

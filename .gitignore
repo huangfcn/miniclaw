@@ -32,3 +32,4 @@ backend/test_memory_db/
 
 # openclaw clone
 openclaw/
+frontend/package-lock.json
