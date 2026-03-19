@@ -172,7 +172,8 @@ public:
         const std::string& channel = "",
         const std::string& chat_id = ""
     ) {
-        // Index user message (Layer 1)
+        // 1. Add and Index user message (Layer 1)
+        session.add_message("user", user_message);
         context_.memory().index_session_message(session.key, "user", user_message);
 
         int memory_window = 20;
@@ -181,9 +182,11 @@ public:
             history.erase(history.begin(), history.end() - memory_window);
         }
 
+        // build_messages handles the latest user_message correctly
         std::vector<Message> messages = context_.build_messages(history, user_message, channel, chat_id);
 
         int iteration = 0;
+        bool finished_normally = false;
 
         while (iteration < max_iterations_) {
             ++iteration;
@@ -202,9 +205,10 @@ public:
             }
 
             if (response.has_tool_calls()) {
-
-                // Append the assistant message with tool_calls
-                messages.push_back(make_assistant_tool_call_message(response.content, response.tool_calls));
+                // Progressive Logging: Append the assistant message with tool_calls to session
+                Message asst_msg = make_assistant_tool_call_message(response.content, response.tool_calls);
+                session.add_message(asst_msg);
+                messages.push_back(asst_msg);
 
                 // Execute each tool call
                 for (const auto& tc : response.tool_calls) {
@@ -218,7 +222,6 @@ public:
                     } else if (tc.name == "memory_search") {
                         auto args = parse_arguments(tc.arguments_json);
                         std::string query = args["query"];
-                        // MemoryStore::search now handles embedding internally if empty
                         auto results = context_.memory().search(query);
                         
                         std::stringstream ss;
@@ -241,65 +244,66 @@ public:
                     }
 
                     on_event({"tool_end", output});
-                    messages.push_back(make_tool_result_message(tc.id, tc.name, output));
+                    
+                    // Progressive Logging: Add tool result to session
+                    Message tool_msg = make_tool_result_message(tc.id, tc.name, output);
+                    session.add_message(tool_msg);
+                    messages.push_back(tool_msg);
                 }
-
             } else {
                 // Final answer - Index it
                 if (!response.content.empty()) {
                     context_.memory().index_session_message(session.key, "assistant", response.content);
                 }
-
-                session.add_message("user", user_message);
                 session.add_message("assistant", response.content);
-
-                // Check for L1 -> L2 distillation (Message count OR reactive Token count floor)
-                size_t estimated_tokens = session.estimate_tokens();
-                size_t token_limit = Config::instance().memory_context_window();
-                float floor_threshold = Config::instance().memory_compaction_threshold();
-
-                bool threshold_hit = false;
-                std::string trigger_strategy = Config::instance().memory_l1_distillation_trigger();
-                if (trigger_strategy == "token_count") {
-                    int token_trigger_threshold = Config::instance().memory_l1_token_threshold();
-                    threshold_hit = (estimated_tokens - session.last_distilled_token_count > token_trigger_threshold);
-                } else { // "message_count"
-                    threshold_hit = (session.messages.size() - session.last_consolidated > Config::instance().memory_l1_to_l2_threshold());
-                }
-
-                bool context_near_full = (estimated_tokens > token_limit * floor_threshold);
-
-                if (threshold_hit || context_near_full) {
-                    if (context_near_full) {
-                        spdlog::info("Context near full ({} tokens), triggering proactive memory flush", estimated_tokens);
-                        distill_l1_to_l2(session, DistillationEvent::COMPACTION);
-                    } else {
-                        distill_l1_to_l2(session, DistillationEvent::PERIODIC);
-                    }
-                }
-
-                // Check for L2 -> L3 distillation (Time-based: Daily + after specific time + Catch-up)
-                std::string today = current_date();
-                std::string yesterday = yesterday_date();
-                std::string now_time = current_time_hhmm();
-                std::string target_time = Config::instance().memory_distillation_time();
-
-                bool missed_days = (!session.last_consolidation_date.empty() && session.last_consolidation_date < yesterday);
-                bool today_due = (session.last_consolidation_date != today && now_time >= target_time);
-
-                if (missed_days || today_due) {
-                    consolidate_memory(session);
-                    session.last_consolidation_date = today;
-                }
-
-                on_event({"done", ""});
+                finished_normally = true;
                 break;
             }
         }
 
-        if (iteration >= max_iterations_) {
+        if (!finished_normally && iteration >= max_iterations_) {
             on_event({"error", "Max iterations reached"});
         }
+
+        // 2. DISTILLATION CHECK (Always runs after loop)
+        std::string today = current_date();
+        std::string yesterday = yesterday_date();
+        std::string now_time = current_time_hhmm();
+        std::string target_time = Config::instance().memory_distillation_time();
+
+        bool l2_missed_days = (!session.last_consolidation_date.empty() && session.last_consolidation_date < yesterday);
+        bool l2_today_due = (session.last_consolidation_date != today && now_time >= target_time);
+
+        // L1 -> L2 (Daily log) triggers
+        size_t estimated_tokens = session.estimate_tokens();
+        size_t token_limit = Config::instance().memory_context_window();
+        float floor_threshold = Config::instance().memory_compaction_threshold();
+        bool context_near_full = (estimated_tokens > token_limit * floor_threshold);
+
+        bool l1_threshold_hit = false;
+        std::string trigger_strategy = Config::instance().memory_l1_distillation_trigger();
+        if (trigger_strategy == "token_count") {
+            int token_trigger_threshold = Config::instance().memory_l1_token_threshold();
+            l1_threshold_hit = (estimated_tokens - session.last_distilled_token_count > (size_t)token_trigger_threshold);
+        } else { // "message_count"
+            l1_threshold_hit = (session.messages.size() - (size_t)session.last_consolidated > (size_t)Config::instance().memory_l1_to_l2_threshold());
+        }
+
+        if (l1_threshold_hit || context_near_full || l2_missed_days || l2_today_due) {
+            if (session.messages.size() > (size_t)session.last_consolidated) {
+                DistillationEvent event = context_near_full ? DistillationEvent::COMPACTION : DistillationEvent::PERIODIC;
+                distill_l1_to_l2(session, event);
+            }
+        }
+
+        // Now handle L2 -> L3 (Long term memory consolidation)
+        if (l2_missed_days || l2_today_due) {
+            consolidate_memory(session);
+            session.last_consolidation_date = today;
+        }
+
+        SessionManager::instance().save(session);
+        on_event({"done", ""});
     }
 
     void distill_l1_to_l2(Session& session, DistillationEvent event = DistillationEvent::PERIODIC) {

@@ -30,7 +30,12 @@ struct Session {
     size_t last_distilled_token_count = 0; // Token count at last distillation
 
     void add_message(const std::string& role, const std::string& content) {
-        messages.push_back({role, content});
+        messages.push_back({role, content, "", "", ""});
+        updated_at = current_iso_timestamp();
+    }
+
+    void add_message(const Message& msg) {
+        messages.push_back(msg);
         updated_at = current_iso_timestamp();
     }
 
@@ -93,7 +98,11 @@ public:
         // Message lines
         for (const auto& msg : session.messages) {
             std::string jmsg = "{\"role\":\"" + json_util::escape(msg.role) + 
-                              "\",\"content\":\"" + json_util::escape(msg.content) + "\"}";
+                              "\",\"content\":\"" + json_util::escape(msg.content) + "\"";
+            if (!msg.tool_call_id.empty()) jmsg += ",\"tool_call_id\":\"" + json_util::escape(msg.tool_call_id) + "\"";
+            if (!msg.name.empty()) jmsg += ",\"name\":\"" + json_util::escape(msg.name) + "\"";
+            if (!msg.tool_calls_json.empty()) jmsg += ",\"tool_calls\":" + msg.tool_calls_json;
+            jmsg += "}";
             f << jmsg << "\n";
         }
 
@@ -155,9 +164,20 @@ private:
                         session.last_distilled_token_count = (size_t)token_count;
                     }
                 } else {
-                    std::string_view role_sv, content_sv;
-                    if (!data["role"].get(role_sv) && !data["content"].get(content_sv)) {
-                        session.messages.push_back({std::string(role_sv), std::string(content_sv)});
+                    std::string_view role_sv, content_sv, id_sv, name_sv;
+                    Message msg;
+                    if (!data["role"].get(role_sv)) msg.role = std::string(role_sv);
+                    if (!data["content"].get(content_sv)) msg.content = std::string(content_sv);
+                    if (!data["tool_call_id"].get(id_sv)) msg.tool_call_id = std::string(id_sv);
+                    if (!data["name"].get(name_sv)) msg.name = std::string(name_sv);
+                    
+                    simdjson::dom::element tc_val;
+                    if (!data["tool_calls"].get(tc_val)) {
+                        msg.tool_calls_json = simdjson::to_string(tc_val);
+                    }
+                    
+                    if (!msg.role.empty()) {
+                        session.messages.push_back(msg);
                     }
                 }
             } else {

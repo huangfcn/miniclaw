@@ -34,6 +34,11 @@ struct Session {
         updated_at = current_iso_timestamp();
     }
 
+    void add_message(const Message& msg) {
+        messages.push_back(msg);
+        updated_at = current_iso_timestamp();
+    }
+
     size_t estimate_tokens() const {
         size_t tokens = 0;
         for (const auto& msg : messages) {
