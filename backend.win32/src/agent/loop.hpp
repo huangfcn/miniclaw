@@ -302,7 +302,6 @@ public:
             session.last_consolidation_date = today;
         }
 
-        SessionManager::instance().save(session);
         on_event({"done", ""});
     }
 
