@@ -1,8 +1,0 @@
-[0/2] Re-checking globbed directories...
-[1/3] Linking CXX executable test_fiber.exe
-FAILED: [code=1] test_fiber.exe 
-C:\WINDOWS\system32\cmd.exe /C "cd . && C:\msys64\ucrt64\bin\c++.exe -O3 -DNDEBUG  CMakeFiles/test_fiber.dir/tests/test_fiber.cpp.obj -o test_fiber.exe -Wl,--out-implib,libtest_fiber.dll.a -Wl,--major-image-version,0,--minor-image-version,0  -lpthread  C:/msys64/ucrt64/lib/libcurl.dll.a  _deps/simdjson-build/libsimdjson.a  C:/workspace/miniclaw/backend/third-party/libuv/lib/libuv.a  C:/msys64/ucrt64/lib/libboost_fiber-mt.a  C:/msys64/ucrt64/lib/libboost_context-mt.a  -lws2_32  -liphlpapi  -luserenv  -ldbghelp  -lgomp  C:/msys64/ucrt64/lib/libboost_filesystem-mt.a  C:/msys64/ucrt64/lib/libboost_iostreams-mt.a  C:/msys64/ucrt64/lib/libboost_thread-mt.a  C:/msys64/ucrt64/lib/libboost_date_time-mt.a  C:/msys64/ucrt64/lib/libboost_fiber-mt.a  C:/msys64/ucrt64/lib/libboost_context-mt.a  -lbcrypt  C:/msys64/ucrt64/lib/libz.dll.a  C:/msys64/ucrt64/lib/libbz2.dll.a  C:/msys64/ucrt64/lib/liblzma.dll.a  C:/msys64/ucrt64/lib/libzstd.dll.a  C:/msys64/ucrt64/lib/libboost_random-mt.a  C:/msys64/ucrt64/lib/libboost_atomic-mt.a  -lsynchronization  C:/msys64/ucrt64/lib/libboost_chrono-mt.a  C:/msys64/ucrt64/lib/libboost_container-mt.a  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 && cd ."
-C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/15.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: cannot open output file test_fiber.exe: Permission denied
-collect2.exe: error: ld returned 1 exit status
-[2/3] Linking CXX executable miniclaw.exe
-ninja: build stopped: subcommand failed.
