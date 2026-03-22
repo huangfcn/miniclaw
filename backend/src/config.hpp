@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <spdlog/spdlog.h>
 
 #if defined(_WIN32)
 #include <windows.h>

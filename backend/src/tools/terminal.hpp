@@ -10,11 +10,11 @@ class TerminalTool : public Tool {
 public:
     std::string name() const override { return "exec"; }
     std::string description() const override {
-        return "Execute a shell command and return its output. Use for running scripts, curl, grep, etc.";
+        return "Execute a raw shell command literally. Provides Bash-like utilities (ls, grep, cat, etc.) via BusyBox on Windows. Do NOT add prefixes like 'shell:', 'bash:', or 'cmd /c' unless you specifically intend to run them.";
     }
 
     std::string schema() const override {
-        return R"===({"type":"function","function":{"name":"exec","description":"Execute a shell command and return its output. Use for running scripts, curl, grep, etc.","parameters":{"type":"object","properties":{"command":{"type":"string","description":"The shell command to execute"}},"required":["command"]}}})===";
+        return R"===({"type":"function","function":{"name":"exec","description":"Execute a raw shell command literally. Provides Bash-like utilities (ls, grep, cat, etc.) via BusyBox on Windows. Do NOT add prefixes like 'shell:', 'bash:', or 'cmd /c' unless you specifically intend to run them.","parameters":{"type":"object","properties":{"command":{"type":"string","description":"The raw, literal shell command string to execute (e.g. 'ls -la', 'grep keyword file.txt')"}},"required":["command"]}}})===";
     }
 
     std::string execute(const std::map<std::string, std::string>& args) override {

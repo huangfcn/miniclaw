@@ -193,6 +193,11 @@ void FiberNode::thread_func() {
                             res->write("data: " + chunk + "\n\n");
                             res->write("data: [DONE]\n\n");
                             res->end();
+                        } else if (ev.type == "tool_start") {
+                            std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
+                                std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
+                                "\"index\":0,\"delta\":{\"reasoning_content\":\"[Thinking: " + json_util::escape(ev.content) + "...]\\n\"},\"finish_reason\":null}]}";
+                            res->write("data: " + chunk + "\n\n");
                         } else if (ev.type == "error") {
                             res->write("data: {\"error\": \"" + json_util::escape(ev.content) + "\"}\n\n");
                             res->end();

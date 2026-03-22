@@ -52,8 +52,6 @@ using LLMCallFn = std::function<LLMResponse(
     const std::string& provider
 )>;
 
-using EmbeddingFn = std::function<std::vector<float>(const std::string& text)>;
-
 class AgentLoop {
 public:
     enum class DistillationEvent {

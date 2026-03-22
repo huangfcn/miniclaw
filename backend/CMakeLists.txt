@@ -480,3 +480,17 @@ else()
 endif()
 
 
+add_executable(test_busybox tests/test_busybox.cpp)
+target_include_directories(test_busybox PRIVATE 
+    src 
+    ${EXTERNAL_DIR}/spdlog/include
+    ${yaml-cpp_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/include
+)
+target_link_libraries(test_busybox PRIVATE pthread yaml-cpp simdjson)
+if(WIN32)
+    target_link_libraries(test_busybox PRIVATE ws2_32 iphlpapi userenv dbghelp)
+    target_link_libraries(test_busybox PRIVATE ${Boost_LIBRARIES})
+endif()
+
+

@@ -96,7 +96,7 @@ Agent::Agent() {
     std::string schema() const override {
       return "{\"type\":\"function\",\"function\":{\"name\":\"memory_search\","
              "\"description\":\"Search through "
-             "memory.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
+             "memory using hybrid search.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
              "\"query\":{\"type\":\"string\",\"description\":\"The search "
              "query.\"}},\"required\":[\"query\"]}}}";
     }
@@ -105,6 +105,25 @@ Agent::Agent() {
     } // Handled in loop
   };
   loop_->register_tool("memory_search", std::make_shared<MemorySearchTool>());
+
+  struct IndexDocumentTool : public Tool {
+    std::string name() const override { return "index_document"; }
+    std::string description() const override {
+      return "Add a document to the agent's memory index for later retrieval. "
+             "Requires a path and the full text content.";
+    }
+    std::string schema() const override {
+      return "{\"type\":\"function\",\"function\":{\"name\":\"index_document\","
+             "\"description\":\"Index a document.\",\"parameters\":{\"type\":\"object\",\"properties\":{"
+             "\"path\":{\"type\":\"string\",\"description\":\"The document path.\"},"
+             "\"text\":{\"type\":\"string\",\"description\":\"The content to index.\"}},"
+             "\"required\":[\"path\",\"text\"]}}}";
+    }
+    std::string execute(const std::map<std::string, std::string> &) override {
+      return "";
+    } // Handled in loop
+  };
+  loop_->register_tool("index_document", std::make_shared<IndexDocumentTool>());
 
   spdlog::info("Agent initialized: model={} workspace={}", model_, workspace_);
 }
@@ -457,7 +476,7 @@ LLMResponse Agent::call_llm(const std::vector<Message> &messages,
       std::string_view content_sv;
       if (!delta["content"].get(content_sv) && !content_sv.empty()) {
         std::string tok(content_sv);
-        // spdlog::debug("Emitting token: '{}'", tok);
+        spdlog::info("LLM Token: '{}'", tok);
         d->on_event({"token", tok});
         d->text_content += tok;
       }

@@ -65,7 +65,7 @@ public:
         const std::string& workspace,
         LLMCallFn llm_fn,
         EmbeddingFn embed_fn,
-        int max_iterations = 5
+        int max_iterations = 10
     )
         : context_(workspace, embed_fn)
         , llm_fn_(std::move(llm_fn))
