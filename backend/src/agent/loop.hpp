@@ -266,37 +266,53 @@ public:
         float floor_threshold = Config::instance().memory_compaction_threshold();
         bool context_near_full = (estimated_tokens > token_limit * floor_threshold);
 
+        size_t last_consolidated = session.last_consolidated;
+        size_t current_msg_count = session.messages.size();
+
         bool l1_threshold_hit = false;
         std::string trigger_strategy = Config::instance().memory_l1_distillation_trigger();
         if (trigger_strategy == "token_count") {
             int token_trigger_threshold = Config::instance().memory_l1_token_threshold();
             l1_threshold_hit = (estimated_tokens - session.last_distilled_token_count > (size_t)token_trigger_threshold);
         } else { // "message_count"
-            l1_threshold_hit = (session.messages.size() - session.last_consolidated > (size_t)Config::instance().memory_l1_to_l2_threshold());
+            l1_threshold_hit = (current_msg_count - last_consolidated > (size_t)Config::instance().memory_l1_to_l2_threshold());
         }
 
-        // IMPORTANT: Ensure L1 -> L2 (Daily log) always happens before L2 -> L3 (Long term memory)
-        if (l1_threshold_hit || context_near_full || l2_missed_days || l2_today_due) {
-            if (session.messages.size() > (size_t)session.last_consolidated) {
-                DistillationEvent event = context_near_full ? DistillationEvent::COMPACTION : DistillationEvent::PERIODIC;
-                distill_l1_to_l2(session, event);
+        // Handle L2 -> L3 (Long term memory consolidation) FIRST using the raw message range
+        bool consolidation_success = false;
+        if (l2_missed_days || l2_today_due) {
+            if (current_msg_count - last_consolidated >= 2) {
+                consolidation_success = consolidate_memory(session, last_consolidated, current_msg_count);
+                if (consolidation_success) {
+                    session.last_consolidation_date = today;
+                }
+            } else if (l2_today_due) {
+                // If it's time but no new messages, just mark as done for today
+                session.last_consolidation_date = today;
             }
         }
 
-        // Now handle L2 -> L3 (Long term memory consolidation)
-        if (l2_missed_days || l2_today_due) {
-            consolidate_memory(session);
-            session.last_consolidation_date = today;
+        // L1 -> L2 (Daily log) triggers
+        // Always run if consolidation was due, or if threshold hit, OR if we missed days
+        if (l1_threshold_hit || context_near_full || l2_missed_days || l2_today_due) {
+            if (current_msg_count > last_consolidated) {
+                DistillationEvent event = context_near_full ? DistillationEvent::COMPACTION : DistillationEvent::PERIODIC;
+                if (distill_l1_to_l2(session, last_consolidated, current_msg_count, event)) {
+                    session.last_consolidated = current_msg_count;
+                }
+            }
+        } else if (consolidation_success) {
+            // If only consolidation ran, still update the consolidated pointer
+            session.last_consolidated = current_msg_count;
         }
 
         on_event({"done", ""});
     }
 
-    void distill_l1_to_l2(Session& session, DistillationEvent event = DistillationEvent::PERIODIC) {
+    bool distill_l1_to_l2(Session& session, int start, int end, DistillationEvent event = DistillationEvent::PERIODIC) {
         spdlog::info("Distilling L1 to L2 for session: {} (Event: {})", session.key, (int)event);
         
-        int start = session.last_consolidated;
-        int end = session.messages.size();
+        if (end <= start) return false;
         
         std::stringstream conv;
         for (int i = start; i < end; ++i) {
@@ -338,18 +354,17 @@ public:
         
         if (!result.content.empty()) {
             context_.memory().append_daily_log(result.content);
-            session.last_consolidated = end;
             session.last_distilled_token_count = session.estimate_tokens();
             spdlog::info("L1 -> L2 distillation completed");
+            return true;
         }
+        return false;
     }
 
-    void consolidate_memory(Session& session) {
+    bool consolidate_memory(Session& session, int start, int end) {
         spdlog::info("Consolidating memory for session: {}", session.key);
 
-        int start = session.last_consolidated;
-        int end = session.messages.size();
-        if (end - start < 2) return;
+        if (end - start < 2) return false;
 
         std::stringstream conv;
         for (int i = start; i < end; ++i) {
@@ -403,9 +418,8 @@ public:
                         else update = simdjson::to_string(memory_val);
                         context_.memory().write_long_term(update);
                     }
-                    session.last_consolidated = end;
-                    session.last_consolidation_date = current_date();
-                    spdlog::info("Memory consolidated successfully for date: {}", session.last_consolidation_date);
+                    spdlog::info("Memory consolidated successfully for session: {}", session.key);
+                    return true;
                 } else {
                     spdlog::error("simdjson parse error in consolidate_memory");
                 }
@@ -413,6 +427,7 @@ public:
         } catch (const std::exception& e) {
             spdlog::error("Exception in consolidate_memory: {}", e.what());
         }
+        return false;
     }
 
     ContextBuilder& context() { return context_; }

@@ -81,7 +81,7 @@ int main() {
         session.add_message("assistant", "Noted for L2.");
 
         std::cout << "Testing L1 -> L2 Distillation..." << std::endl;
-        loop.distill_l1_to_l2(session, AgentLoop::DistillationEvent::PERIODIC);
+        loop.distill_l1_to_l2(session, 0, (int)session.messages.size(), AgentLoop::DistillationEvent::PERIODIC);
 
         // Verify L2 file exists
         std::string today = get_today_date();
@@ -99,7 +99,7 @@ int main() {
         session.add_message("user", "Now let's move to permanent memory.");
         session.add_message("assistant", "Finalizing memory store.");
         
-        loop.consolidate_memory(session);
+        loop.consolidate_memory(session, 0, (int)session.messages.size());
 
         // Verify L3 file exists
         fs::path l3_memory = fs::path(workspace) / "memory" / "MEMORY.md";

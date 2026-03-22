@@ -47,10 +47,10 @@ int main() {
 
             std::cout << "[Fiber] Triggering L1 -> L2 Distillation (Real Call)..." << std::endl;
             // This will use the real LLM configured in config.yaml
-            agent.loop().distill_l1_to_l2(session, AgentLoop::DistillationEvent::SESSION_END);
+            agent.loop().distill_l1_to_l2(session, 0, (int)session.messages.size(), AgentLoop::DistillationEvent::SESSION_END);
             
             std::cout << "[Fiber] Triggering L2 -> L3 Consolidation (Real Call)..." << std::endl;
-            agent.loop().consolidate_memory(session);
+            agent.loop().consolidate_memory(session, 0, (int)session.messages.size());
             
             std::cout << "[Fiber] Verification..." << std::endl;
             // Check if any log files were created in the actual workspace
