@@ -27,7 +27,6 @@ set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
 set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
 set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
 set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
-set(FIBER_DIR "${THIRDPARTY_DIR}/fiber")
 set(LIBUV_DIR "${THIRDPARTY_DIR}/libuv")
 
 if(APPLE)
@@ -36,7 +35,7 @@ if(APPLE)
     include_directories(${BOOST_INC})
     link_directories(${BOOST_LIB})
 else()
-    find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
+    find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
     include_directories(${Boost_INCLUDE_DIRS})
 endif()
 
@@ -110,7 +109,6 @@ target_include_directories(miniclaw PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
     ${yaml-cpp_SOURCE_DIR}/include
@@ -140,7 +138,8 @@ target_link_libraries(miniclaw PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
+    Boost::fiber
+    Boost::context
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -177,15 +176,16 @@ endif()
 
 add_executable(test_fiber tests/test_fiber.cpp)
     target_include_directories(test_fiber PRIVATE 
+    src
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
 )
 target_link_libraries(test_fiber PRIVATE 
     pthread
     CURL::libcurl
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
+    Boost::fiber
+    Boost::context
 )
 
 if(WIN32)
@@ -204,7 +204,6 @@ target_include_directories(test_agent_loop PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -219,7 +218,8 @@ target_link_libraries(test_agent_loop PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
+    Boost::fiber
+    Boost::context
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -261,7 +261,6 @@ target_include_directories(test_memory_index PRIVATE
     ${LUCENE_DIR}/include
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
 )
@@ -271,7 +270,8 @@ target_link_libraries(test_memory_index PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
+    Boost::fiber
+    Boost::context
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -311,7 +311,6 @@ target_include_directories(test_distillation PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -324,7 +323,8 @@ target_link_libraries(test_distillation PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
+    Boost::fiber
+    Boost::context
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -364,7 +364,6 @@ target_include_directories(test_distillation_real PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
@@ -384,7 +383,8 @@ target_link_libraries(test_distillation_real PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
+    Boost::fiber
+    Boost::context
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -424,7 +424,6 @@ target_include_directories(test_gmail PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${LIBUV_DIR}/include
-    ${FIBER_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
@@ -444,7 +443,8 @@ target_link_libraries(test_gmail PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    ${FIBER_DIR}/lib/libfiber.a
+    Boost::fiber
+    Boost::context
     ${FAISS_DIR}/lib/libfaiss.a
 )
 

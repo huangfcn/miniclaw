@@ -1,6 +1,6 @@
 #pragma once
 #include <uv.h>
-#include <fiber.hpp>
+#include <boost/fiber/all.hpp>
 #include <thread>
 #include <vector>
 #include <queue>
@@ -39,7 +39,9 @@ private:
     Agent* agent_;
     void* app_ = nullptr;
     struct us_listen_socket_t *listen_socket_ = nullptr;
-    std::atomic<int> last_logged_fibers_{-1};
+
+    boost::fibers::mutex shutdown_mtx_;
+    boost::fibers::condition_variable shutdown_cv_;
 };
 
 class FiberPool {

@@ -2,6 +2,7 @@
 #include "fiber_pool.hpp"
 #include "curl_manager.hpp"
 #include <spdlog/spdlog.h>
+#include <boost/fiber/algo/round_robin.hpp>
 
 #include <simdjson.h>
 #include "agent.hpp"
@@ -11,6 +12,30 @@ extern "C" {
 struct us_listen_socket_t;
 void us_listen_socket_close(int ssl, struct us_listen_socket_t *ls);
 }
+
+// Boost.Fiber Scheduler for Libuv integration
+class uv_scheduler : public boost::fibers::algo::round_robin {
+public:
+    uv_scheduler(uv_loop_t* loop, uv_async_t* async) : loop_(loop), async_(async) {}
+
+    void suspend_until(std::chrono::steady_clock::time_point const& abs_time) noexcept override {
+        if (std::chrono::steady_clock::time_point::max() == abs_time) {
+            uv_run(loop_, UV_RUN_ONCE);
+        } else {
+            uv_run(loop_, UV_RUN_NOWAIT);
+        }
+        round_robin::suspend_until(abs_time);
+    }
+
+    void notify() noexcept override {
+        uv_async_send(async_);
+        round_robin::notify();
+    }
+
+private:
+    uv_loop_t* loop_;
+    uv_async_t* async_;
+};
 
 thread_local FiberNode* g_current_node = nullptr;
 
@@ -32,7 +57,8 @@ FiberNode::FiberNode(Agent* agent) : agent_(agent) {
             auto task = std::move(self->tasks_.front());
             self->tasks_.pop();
             lock.unlock();
-            task();
+            // In Boost.Fiber, we spawn a fiber for each task
+            boost::fibers::fiber(task).detach();
             lock.lock();
         }
     });
@@ -52,8 +78,11 @@ void FiberNode::start() {
 
 void FiberNode::stop() {
     if (running_.exchange(false)) {
-        // Wake up libuv loop instead of thread-unsafe uv_stop
         uv_async_send(&async_);
+        // Also wake up the main fiber waiting on the CV
+        spawn([this]() {
+            shutdown_cv_.notify_all();
+        });
         if (thread_.joinable()) thread_.join();
     }
 }
@@ -69,44 +98,29 @@ void FiberNode::spawn(std::function<void()> task) {
 void FiberNode::thread_func() {
     spdlog::info("Fiber node thread started: {}", std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
-    // Set current node for this thread
     g_current_node = this;
 
-    // Initialize Fiber for this thread
-    FiberThreadStartup();
+    // Use custom scheduler for this thread
+    boost::fibers::use_scheduling_algorithm<uv_scheduler>(&loop_, &async_);
 
-    // Initialize Thread-Local Curl Manager
     CurlMultiManager::instance().init(&loop_);
-
-    // Initialize uWebSockets Loop wrapper for this thread using our native loop
     uWS::Loop::get(&loop_);
 
-    // Initialize uWebSockets App
     app_ = new uWS::App();
 
-    static_cast<uWS::App*>(app_)->get("/api/health", [](auto *res, auto *req) {
+    auto* uws_app = static_cast<uWS::App*>(app_);
+
+    uws_app->get("/api/health", [](auto *res, auto *req) {
         res->end("OK");
     }).options("/*", [](auto *res, auto *req) {
         res->writeHeader("Access-Control-Allow-Origin", "*")
            ->writeHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
            ->writeHeader("Access-Control-Allow-Headers", "content-type, authorization")
            ->end();
-        res->writeHeader("Access-Control-Allow-Origin", "*")
-           ->writeHeader("Content-Type", "application/json");
-        
-        std::string response = "{\"object\":\"list\",\"data\":["
-            "{\"id\":\"miniclaw\",\"object\":\"model\",\"created\":1686935002,\"owned_by\":\"miniclaw\"},"
-            "{\"id\":\"gpt-4o-mini\",\"object\":\"model\",\"created\":1721251200,\"owned_by\":\"openai\"},"
-            "{\"id\":\"gpt-5\",\"object\":\"model\",\"created\":1750000000,\"owned_by\":\"openai\"},"
-            "{\"id\":\"gpt-5-mini\",\"object\":\"model\",\"created\":1750000001,\"owned_by\":\"openai\"}"
-        "]}";
-        res->end(response);
     }).post("/api/shutdown", [](auto *res, auto *req) {
         spdlog::info("Shutdown requested via API");
         res->writeHeader("Access-Control-Allow-Origin", "*")
            ->end("{\"status\":\"shutting_down\"}");
-        
-        // Trigger the global shutdown
         miniclaw_trigger_shutdown();
     }).post("/v1/chat/completions", [this](auto *res, auto *req) {
         auto aborted = std::make_shared<bool>(false);
@@ -134,12 +148,9 @@ void FiberNode::thread_func() {
                     return;
                 }
 
-                // Extract last user message for miniclaw's current single-message processing
                 std::string message = "";
                 std::string_view requested_model_sv;
-                if (!x["model"].get(requested_model_sv)) {
-                    // model found
-                }
+                if (!x["model"].get(requested_model_sv)) {}
                 std::string requested_model = std::string(requested_model_sv.empty() ? "unknown" : requested_model_sv);
 
                 simdjson::dom::array messages;
@@ -156,9 +167,6 @@ void FiberNode::thread_func() {
                 }
                 
                 spdlog::info("OpenAI Chat Completion: model={}, session=default, msg_len={}", requested_model, message.length());
-                
-                // Open WebUI often doesn't send a session_id in the OpenAI request
-                // We'll use a default or generate one if needed, but for now just "default"
                 std::string session_id = "default";
 
                 res->writeStatus("200 OK")
@@ -167,24 +175,11 @@ void FiberNode::thread_func() {
                    ->writeHeader("Connection", "keep-alive")
                    ->writeHeader("Access-Control-Allow-Origin", "*");
 
-                struct RequestContext {
-                    FiberNode* node;
-                    uWS::HttpResponse<false>* res;
-                    std::string message;
-                    std::string session_id;
-                    std::shared_ptr<bool> aborted;
-                    std::string chat_id;
-                };
+                std::string chat_id = "chatcmpl-" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
 
-                auto ctx = new RequestContext{
-                    this, res, std::move(message), std::move(session_id), aborted,
-                    "chatcmpl-" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count())
-                };
-
-                fiber_create([](void* arg) -> void* {
-                    std::unique_ptr<RequestContext> ctx((RequestContext*)arg);
-                    
-                    ctx->node->agent_->run(ctx->message, ctx->session_id, [res = ctx->res, aborted = ctx->aborted, chat_id = ctx->chat_id](const AgentEvent& ev) {
+                // Spawn Boost.Fiber
+                boost::fibers::fiber([this, res, aborted, chat_id, message, session_id]() {
+                    agent_->run(message, session_id, [res, aborted, chat_id](const AgentEvent& ev) {
                         if (*aborted) return;
                         if (ev.type == "token") {
                             std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
@@ -199,13 +194,11 @@ void FiberNode::thread_func() {
                             res->write("data: [DONE]\n\n");
                             res->end();
                         } else if (ev.type == "error") {
-                            // Non-standard but helpful
                             res->write("data: {\"error\": \"" + json_util::escape(ev.content) + "\"}\n\n");
                             res->end();
                         }
                     });
-                    return nullptr;
-                }, ctx, NULL, 1024 * 1024);
+                }).detach();
             }
         });
     }).post("/api/chat", [this](auto *res, auto *req) {
@@ -217,12 +210,7 @@ void FiberNode::thread_func() {
             spdlog::warn("HTTP request aborted by client");
         });
 
-        std::string auth_header(req->getHeader("authorization"));
-        if (auth_header.rfind("Bearer ", 0) == 0) {
-            auth_header = auth_header.substr(7);
-        }
-
-        res->onData([this, res, aborted, body_buffer, auth_header](std::string_view data, bool last) {
+        res->onData([this, res, aborted, body_buffer](std::string_view data, bool last) {
             if (*aborted) return;
             body_buffer->append(data.data(), data.length());
             if (last) {
@@ -245,30 +233,14 @@ void FiberNode::thread_func() {
 
                 spdlog::info("Internal Chat API: model={}, session={}, msg_len={}", requested_model, session_id, message.length());
 
-                // Send SSE headers now that we know it's a valid request
                 res->writeStatus("200 OK")
                    ->writeHeader("Content-Type", "text/event-stream")
                    ->writeHeader("Cache-Control", "no-cache")
                    ->writeHeader("Connection", "keep-alive")
                    ->writeHeader("Access-Control-Allow-Origin", "*");
 
-                struct RequestContext {
-                    FiberNode* node;
-                    uWS::HttpResponse<false>* res;
-                    std::string message;
-                    std::string session_id;
-                    std::shared_ptr<bool> aborted;
-                };
-
-                auto ctx = new RequestContext{
-                    this, res, std::move(message), std::move(session_id), aborted
-                };
-
-                // Create fiber to handle the request
-                fiber_create([](void* arg) -> void* {
-                    std::unique_ptr<RequestContext> ctx((RequestContext*)arg);
-                    
-                    ctx->node->agent_->run(ctx->message, ctx->session_id, [res = ctx->res, aborted = ctx->aborted](const AgentEvent& ev) {
+                boost::fibers::fiber([this, res, aborted, message, session_id]() {
+                    agent_->run(message, session_id, [res, aborted](const AgentEvent& ev) {
                         if (*aborted) return;
                         std::string chunk = "data: {\"type\":\"" + json_util::escape(ev.type) + "\",\"content\":\"" + json_util::escape(ev.content) + "\"}\n\n";
                         res->write(chunk);
@@ -276,14 +248,12 @@ void FiberNode::thread_func() {
                             res->end();
                         }
                     });
-                    return nullptr;
-                }, ctx, NULL, 1024 * 1024);
+                }).detach();
             }
         });
     });
 
-    // Listen with REUSE_PORT (default in many uWS versions or handled by OS)
-    static_cast<uWS::App*>(app_)->listen(9000, LIBUS_LISTEN_DEFAULT, [this](auto *listen_socket) {
+    uws_app->listen(9000, LIBUS_LISTEN_DEFAULT, [this](auto *listen_socket) {
         if (listen_socket) {
             spdlog::info("FiberNode listening on port 9000");
             this->listen_socket_ = listen_socket;
@@ -292,26 +262,20 @@ void FiberNode::thread_func() {
         }
     });
 
-    // Keep-alive fiber to prevent scheduler from exiting when idle
-    fiber_create([](void* arg) -> void* {
-        std::atomic<bool>* running = (std::atomic<bool>*)arg;
-        while (running->load()) {
-            fiber_usleep(100000); // 100ms
+    // Keep-alive fiber
+    boost::fibers::fiber([this]() {
+        while (running_.load()) {
+            boost::this_fiber::sleep_for(std::chrono::milliseconds(500));
         }
-        spdlog::info("Keep-alive fiber gracefully exiting");
-        return nullptr;
-    }, &running_, NULL, 4096);
+        shutdown_cv_.notify_all();
+    }).detach();
 
-    // Pulse Libuv from the Fiber Scheduler
-    fibthread_args_t fiber_args;
-    fiber_args.fiberSchedulerCallback = [](void* arg) -> bool {
-        FiberNode* self = (FiberNode*)arg;
-        uv_run(&self->loop_, UV_RUN_NOWAIT);
-        return self->running_.load();
-    };
-    fiber_args.args = this;
-
-    fiber_thread_entry(&fiber_args);
+    // Instead of tight yield loop, wait for shutdown signal
+    {
+        std::unique_lock<boost::fibers::mutex> lock(shutdown_mtx_);
+        shutdown_cv_.wait(lock, [this] { return !running_.load(); });
+    }
+    
     spdlog::info("Fiber node thread exiting");
 }
 
