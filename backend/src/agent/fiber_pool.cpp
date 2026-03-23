@@ -5,6 +5,10 @@
 
 #ifdef _WIN32
 #include <boost/fiber/algo/round_robin.hpp>
+#else
+extern "C" {
+#include "fiber.h"
+}
 #endif
 
 #include <simdjson.h>

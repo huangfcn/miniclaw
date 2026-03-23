@@ -332,8 +332,7 @@ target_link_libraries(test_distillation PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    Boost::fiber
-    Boost::context
+    ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
