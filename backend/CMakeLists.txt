@@ -35,8 +35,21 @@ if(APPLE)
     include_directories(${BOOST_INC})
     link_directories(${BOOST_LIB})
 else()
-    find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
+    if(WIN32)
+        find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
+    else()
+        find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
+        include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
+    endif()
     include_directories(${Boost_INCLUDE_DIRS})
+endif()
+
+# Platform-specific fiber library
+set(FIBER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber")
+if(WIN32)
+    set(FIBER_LIBS Boost::fiber Boost::context)
+else()
+    set(FIBER_LIBS ${FIBER_DIR}/lib/libfiber.a)
 endif()
 
 include(FetchContent)
@@ -138,8 +151,7 @@ target_link_libraries(miniclaw PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    Boost::fiber
-    Boost::context
+    ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -184,8 +196,7 @@ target_link_libraries(test_fiber PRIVATE
     CURL::libcurl
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    Boost::fiber
-    Boost::context
+    ${FIBER_LIBS}
 )
 
 if(WIN32)
@@ -218,8 +229,7 @@ target_link_libraries(test_agent_loop PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    Boost::fiber
-    Boost::context
+    ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -270,8 +280,7 @@ target_link_libraries(test_memory_index PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    Boost::fiber
-    Boost::context
+    ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -383,8 +392,7 @@ target_link_libraries(test_distillation_real PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    Boost::fiber
-    Boost::context
+    ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
 
@@ -443,8 +451,7 @@ target_link_libraries(test_gmail PRIVATE
     yaml-cpp
     simdjson
     ${LIBUV_DIR}/lib/libuv.a
-    Boost::fiber
-    Boost::context
+    ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
 

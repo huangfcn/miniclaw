@@ -2,7 +2,10 @@
 #include "fiber_pool.hpp"
 #include "curl_manager.hpp"
 #include <spdlog/spdlog.h>
+
+#ifdef _WIN32
 #include <boost/fiber/algo/round_robin.hpp>
+#endif
 
 #include <simdjson.h>
 #include "agent.hpp"
@@ -13,6 +16,7 @@ struct us_listen_socket_t;
 void us_listen_socket_close(int ssl, struct us_listen_socket_t *ls);
 }
 
+#ifdef _WIN32
 // Boost.Fiber Scheduler for Libuv integration
 class uv_scheduler : public boost::fibers::algo::round_robin {
 public:
@@ -36,6 +40,7 @@ private:
     uv_loop_t* loop_;
     uv_async_t* async_;
 };
+#endif
 
 thread_local FiberNode* g_current_node = nullptr;
 
@@ -57,8 +62,14 @@ FiberNode::FiberNode(Agent* agent) : agent_(agent) {
             auto task = std::move(self->tasks_.front());
             self->tasks_.pop();
             lock.unlock();
-            // In Boost.Fiber, we spawn a fiber for each task
+#ifdef _WIN32
             boost::fibers::fiber(task).detach();
+#else
+            // In libfiber mode, we use fiber_create/resume.
+            // But if we are on the loop thread, and this task is a uWS callback,
+            // we should just run it.
+            task(); 
+#endif
             lock.lock();
         }
     });
@@ -79,15 +90,43 @@ void FiberNode::start() {
 void FiberNode::stop() {
     if (running_.exchange(false)) {
         uv_async_send(&async_);
-        // Also wake up the main fiber waiting on the CV
+#ifdef _WIN32
         spawn([this]() {
             shutdown_cv_.notify_all();
         });
+#endif
         if (thread_.joinable()) thread_.join();
     }
 }
 
+// Wrapper for the third-party fiber_create entry point
+struct fiber_task_wrapper_t {
+    std::function<void()> task;
+};
+
+static void* fiber_entry_proxy(void* arg) {
+    auto* wrapper = static_cast<fiber_task_wrapper_t*>(arg);
+    wrapper->task();
+    delete wrapper;
+    return nullptr;
+}
+
 void FiberNode::spawn(std::function<void()> task) {
+#ifdef _WIN32
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        tasks_.push(std::move(task));
+    }
+    uv_async_send(&async_);
+#else
+    // Third-party fiber mode
+    auto* wrapper = new fiber_task_wrapper_t{std::move(task)};
+    fiber_t fiber = fiber_create(fiber_entry_proxy, wrapper, nullptr, 0);
+    fiber_resume(fiber);
+#endif
+}
+
+void FiberNode::spawn_back_on_loop(std::function<void()> task) {
     {
         std::lock_guard<std::mutex> lock(mtx_);
         tasks_.push(std::move(task));
@@ -96,12 +135,15 @@ void FiberNode::spawn(std::function<void()> task) {
 }
 
 void FiberNode::thread_func() {
-    spdlog::info("Fiber node thread started: {}", std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    spdlog::info("Node thread started: {}", std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
     g_current_node = this;
 
-    // Use custom scheduler for this thread
+#ifdef _WIN32
     boost::fibers::use_scheduling_algorithm<uv_scheduler>(&loop_, &async_);
+#else
+    FiberThreadStartup();
+#endif
 
     CurlMultiManager::instance().init(&loop_);
     uWS::Loop::get(&loop_);
@@ -123,7 +165,7 @@ void FiberNode::thread_func() {
            ->end("{\"status\":\"shutting_down\"}");
         miniclaw_trigger_shutdown();
     }).post("/v1/chat/completions", [this](auto *res, auto *req) {
-        auto aborted = std::make_shared<bool>(false);
+        auto aborted = std::make_shared<std::atomic<bool>>(false);
         auto body_buffer = std::make_shared<std::string>();
 
         res->onAborted([aborted]() {
@@ -131,12 +173,7 @@ void FiberNode::thread_func() {
             spdlog::warn("OpenAI API request aborted");
         });
 
-        std::string auth_header(req->getHeader("authorization"));
-        if (auth_header.rfind("Bearer ", 0) == 0) {
-            auth_header = auth_header.substr(7);
-        }
-
-        res->onData([this, res, aborted, body_buffer, auth_header](std::string_view data, bool last) {
+        res->onData([this, res, aborted, body_buffer](std::string_view data, bool last) {
             if (*aborted) return;
             body_buffer->append(data.data(), data.length());
             if (last) {
@@ -177,37 +214,46 @@ void FiberNode::thread_func() {
 
                 std::string chat_id = "chatcmpl-" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
 
-                // Spawn Boost.Fiber
-                boost::fibers::fiber([this, res, aborted, chat_id, message, session_id]() {
-                    agent_->run(message, session_id, [res, aborted, chat_id](const AgentEvent& ev) {
+                spawn([this, res, aborted, chat_id, message, session_id]() {
+                    agent_->run(message, session_id, [this, res, aborted, chat_id](const AgentEvent& ev) {
                         if (*aborted) return;
-                        if (ev.type == "token") {
-                            std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
-                                std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
-                                "\"index\":0,\"delta\":{\"content\":\"" + json_util::escape(ev.content) + "\"},\"finish_reason\":null}]}";
-                            res->write("data: " + chunk + "\n\n");
-                        } else if (ev.type == "done") {
-                            std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
-                                std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
-                                "\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}";
-                            res->write("data: " + chunk + "\n\n");
-                            res->write("data: [DONE]\n\n");
-                            res->end();
-                        } else if (ev.type == "tool_start") {
-                            std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
-                                std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
-                                "\"index\":0,\"delta\":{\"reasoning_content\":\"[Thinking: " + json_util::escape(ev.content) + "...]\\n\"},\"finish_reason\":null}]}";
-                            res->write("data: " + chunk + "\n\n");
-                        } else if (ev.type == "error") {
-                            res->write("data: {\"error\": \"" + json_util::escape(ev.content) + "\"}\n\n");
-                            res->end();
-                        }
+
+                        auto write_chunk = [res, aborted, chat_id, ev]() {
+                            if (*aborted) return;
+                            if (ev.type == "token") {
+                                std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
+                                    std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
+                                    "\"index\":0,\"delta\":{\"content\":\"" + json_util::escape(ev.content) + "\"},\"finish_reason\":null}]}";
+                                res->write("data: " + chunk + "\n\n");
+                            } else if (ev.type == "done") {
+                                std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
+                                    std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
+                                    "\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}";
+                                res->write("data: " + chunk + "\n\n");
+                                res->write("data: [DONE]\n\n");
+                                res->end();
+                            } else if (ev.type == "tool_start") {
+                                std::string chunk = "{\"id\":\"" + chat_id + "\",\"object\":\"chat.completion.chunk\",\"created\":" + 
+                                    std::to_string(std::time(nullptr)) + ",\"model\":\"miniclaw\",\"choices\":[{"
+                                    "\"index\":0,\"delta\":{\"reasoning_content\":\"[Thinking: " + json_util::escape(ev.content) + "...]\\n\"},\"finish_reason\":null}]}";
+                                res->write("data: " + chunk + "\n\n");
+                            } else if (ev.type == "error") {
+                                res->write("data: {\"error\": \"" + json_util::escape(ev.content) + "\"}\n\n");
+                                res->end();
+                            }
+                        };
+
+#ifdef _WIN32
+                        write_chunk();
+#else
+                        this->spawn_back_on_loop(write_chunk);
+#endif
                     });
-                }).detach();
+                });
             }
         });
     }).post("/api/chat", [this](auto *res, auto *req) {
-        auto aborted = std::make_shared<bool>(false);
+        auto aborted = std::make_shared<std::atomic<bool>>(false);
         auto body_buffer = std::make_shared<std::string>();
 
         res->onAborted([aborted]() {
@@ -244,16 +290,26 @@ void FiberNode::thread_func() {
                    ->writeHeader("Connection", "keep-alive")
                    ->writeHeader("Access-Control-Allow-Origin", "*");
 
-                boost::fibers::fiber([this, res, aborted, message, session_id]() {
-                    agent_->run(message, session_id, [res, aborted](const AgentEvent& ev) {
+                spawn([this, res, aborted, message, session_id]() {
+                    agent_->run(message, session_id, [this, res, aborted](const AgentEvent& ev) {
                         if (*aborted) return;
-                        std::string chunk = "data: {\"type\":\"" + json_util::escape(ev.type) + "\",\"content\":\"" + json_util::escape(ev.content) + "\"}\n\n";
-                        res->write(chunk);
-                        if (ev.type == "done" || ev.type == "error") {
-                            res->end();
-                        }
+                        
+                        auto write_chunk = [res, aborted, ev]() {
+                            if (*aborted) return;
+                            std::string chunk = "data: {\"type\":\"" + json_util::escape(ev.type) + "\",\"content\":\"" + json_util::escape(ev.content) + "\"}\n\n";
+                            res->write(chunk);
+                            if (ev.type == "done" || ev.type == "error") {
+                                res->end();
+                            }
+                        };
+
+#ifdef _WIN32
+                        write_chunk();
+#else
+                        this->spawn_back_on_loop(write_chunk);
+#endif
                     });
-                }).detach();
+                });
             }
         });
     });
@@ -267,7 +323,7 @@ void FiberNode::thread_func() {
         }
     });
 
-    // Keep-alive fiber
+#ifdef _WIN32
     boost::fibers::fiber([this]() {
         while (running_.load()) {
             boost::this_fiber::sleep_for(std::chrono::milliseconds(500));
@@ -275,13 +331,22 @@ void FiberNode::thread_func() {
         shutdown_cv_.notify_all();
     }).detach();
 
-    // Instead of tight yield loop, wait for shutdown signal
     {
         std::unique_lock<boost::fibers::mutex> lock(shutdown_mtx_);
         shutdown_cv_.wait(lock, [this] { return !running_.load(); });
     }
+#else
+    fibthread_args_t fib_args;
+    fib_args.fiberSchedulerCallback = [](void* args) -> bool {
+        auto* self = static_cast<FiberNode*>(args);
+        uv_run(&self->loop_, UV_RUN_NOWAIT);
+        return self->running_.load();
+    };
+    fib_args.args = this;
+    fiber_thread_entry(&fib_args);
+#endif
     
-    spdlog::info("Fiber node thread exiting");
+    spdlog::info("Node thread exiting");
 }
 
 void FiberPool::init(size_t num_threads, Agent* agent) {

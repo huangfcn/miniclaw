@@ -1,17 +1,27 @@
 #pragma once
-#include <boost/fiber/all.hpp>
 #include <chrono>
 #include <map>
 #include <mutex>
 #include <memory>
 #include <functional>
+#include <thread>
+#include <condition_variable>
+#include <future>
+
+#ifdef _WIN32
+#include <boost/fiber/all.hpp>
+#else
+#include "../third-party/fiber/include/fiber.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Legacy types
+#ifdef _WIN32
+// --- Boost.Fiber Implementation (Windows) ---
 typedef boost::fibers::context* fiber_t;
+
 typedef struct FibTCB {
     // Dummy struct to satisfy legacy pointer usage
 } FibTCB;
@@ -119,12 +129,20 @@ inline void fiber_thread_entry(fibthread_args_t* args) {
         if (boost::fibers::has_ready_fibers()) {
             boost::this_fiber::yield();
         } else {
-            // If no fibers are ready, we might want to sleep briefly 
-            // but the callback usually handles the I/O wait.
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 }
+
+#else
+// --- Third-Party libfiber Implementation (macOS/Linux) ---
+// Note: Types and functions (fiber_t, fiber_create, fiber_ident, fiber_suspend, fiber_resume, fiber_usleep, etc.)
+// are directly used from "../third-party/fiber/include/fiber.h" which was included above.
+
+// The third-party header already defines fiber_t as struct FibTCB*
+// It also provides FiberGlobalStartup, FiberThreadStartup, etc.
+
+#endif
 
 #ifdef __cplusplus
 }
