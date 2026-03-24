@@ -76,7 +76,7 @@ private:
                 sub_session.key = "subagent:" + d->task_id;
                 
                 std::string final_result;
-                sub_loop.process(d->task, sub_session, [](const AgentEvent& ev) {});
+                sub_loop.run(d->task, sub_session, [](const AgentEvent& ev) {});
 
                 if (!sub_session.messages.empty() && sub_session.messages.back().role == "assistant") {
                     final_result = sub_session.messages.back().content;

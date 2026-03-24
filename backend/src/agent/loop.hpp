@@ -2,55 +2,15 @@
 // AgentLoop — native OpenAI function-calling implementation
 // Uses tool_calls from API response instead of XML text parsing.
 
-#include <string>
-#include <vector>
-#include <map>
-#include <functional>
-#include <memory>
-#include <sstream>
-#include <chrono>
-#include <ctime>
-#include <spdlog/spdlog.h>
-
+#include "agent_types.hpp"
 #include "context.hpp"
 #include "session.hpp"
 #include "../tools/tool.hpp"
 #include <fiber.hpp>
 #include "../config.hpp"
 #include <simdjson.h>
-
-
-// One tool call from the LLM
-struct ToolCall {
-    std::string id;
-    std::string name;
-    std::string arguments_json;  // raw JSON string from OpenAI
-};
-
-// Structured LLM response (replaces plain std::string)
-struct LLMResponse {
-    std::string content;           // text content (may be empty if tool_calls present)
-    std::vector<ToolCall> tool_calls;
-    bool has_tool_calls() const { return !tool_calls.empty(); }
-};
-
-// Event types streamed back to the caller
-struct AgentEvent {
-    std::string type;    // "token" | "tool_start" | "tool_end" | "done" | "error"
-    std::string content;
-};
-
-using EventCallback = std::function<void(const AgentEvent&)>;
-
-// LLMCallFn is "synchronous" from the fiber's perspective.
-using LLMCallFn = std::function<LLMResponse(
-    const std::vector<Message>& messages,
-    const std::string& tools_json,
-    EventCallback on_event,
-    const std::string& model,
-    const std::string& endpoint,
-    const std::string& provider
-)>;
+#include <sstream>
+#include <spdlog/spdlog.h>
 
 class AgentLoop {
 public:
@@ -158,7 +118,7 @@ public:
         return msg;
     }
 
-    void process(
+    void run(
         const std::string& user_message,
         Session& session,
         EventCallback on_event,
@@ -276,32 +236,25 @@ public:
             l1_threshold_hit = (current_msg_count - last_consolidated > (size_t)Config::instance().memory_l1_to_l2_threshold());
         }
 
-        // Handle L2 -> L3 (Long term memory consolidation) FIRST using the raw message range
-        bool consolidation_success = false;
-        if (l2_missed_days || l2_today_due) {
-            if (current_msg_count - last_consolidated >= 2) {
-                consolidation_success = consolidate_memory(session, last_consolidated, current_msg_count);
-                if (consolidation_success) {
-                    session.last_consolidation_date = today;
-                }
-            } else if (l2_today_due) {
-                // If it's time but no new messages, just mark as done for today
-                session.last_consolidation_date = today;
-            }
-        }
-
-        // L1 -> L2 (Daily log) triggers
-        // Always run if consolidation was due, or if threshold hit, OR if we missed days
+        // --- DISTILLATION PIPELINE (L1 -> L2 -> L3) ---
+        
+        bool l1_to_l2_success = false;
         if (l1_threshold_hit || context_near_full || l2_missed_days || l2_today_due) {
             if (current_msg_count > last_consolidated) {
                 DistillationEvent event = context_near_full ? DistillationEvent::COMPACTION : DistillationEvent::PERIODIC;
-                if (distill_l1_to_l2(session, last_consolidated, current_msg_count, event)) {
+                l1_to_l2_success = distill_l1_to_l2(session, last_consolidated, current_msg_count, event);
+                if (l1_to_l2_success) {
                     session.last_consolidated = current_msg_count;
                 }
             }
-        } else if (consolidation_success) {
-            // If only consolidation ran, still update the consolidated pointer
-            session.last_consolidated = current_msg_count;
+        }
+
+        // L2 -> L3 (Long term memory consolidation)
+        if (l2_missed_days || l2_today_due) {
+            // Consolidate from L2 (Daily Logs) to L3 (Long-term Memory)
+            if (consolidate_memory(session)) {
+                session.last_consolidation_date = today;
+            }
         }
 
         on_event({"done", ""});
@@ -339,7 +292,7 @@ public:
         }
 
         std::vector<Message> msgs = {
-            {"system", "You are a memory distillation agent. Your goal is to compress raw session logs into meaningful daily summaries.", "", "", ""},
+            {"system", "You are a memory distillation agent. Your goal is to compress raw session logs into a concise daily summary. Focus on significant technical progress, key decisions, and unique user preferences. Discard ephemeral data (weather, time, trivial greetings) and redundant meta-activity about your own internal processes.", "", "", ""},
             {"user", template_str, "", "", ""}
         };
 
@@ -359,23 +312,27 @@ public:
         return false;
     }
 
-    bool consolidate_memory(Session& session, int start, int end) {
-        spdlog::info("Consolidating memory for session: {}", session.key);
+    bool consolidate_memory(Session& session) {
+        spdlog::info("Consolidating memory (L2 -> L3) for session: {}", session.key);
 
-        if (end - start < 2) return false;
-
-        std::stringstream conv;
-        for (int i = start; i < end; ++i) {
-            conv << "[" << session.messages[i].role << "]: " << session.messages[i].content << "\n";
+        std::string logs_context = context_.memory().get_recent_logs_for_consolidation();
+        if (logs_context.empty()) {
+            spdlog::debug("No daily logs found for consolidation.");
+            return false;
         }
 
         std::string current_mem = context_.memory().read_long_term();
 
-        std::string prompt = "Process this conversation and return a JSON object with:\n"
-            "1. \"history_entry\": A summary paragraph (2-5 sentences) of key events.\n"
-            "2. \"memory_update\": Updated long-term memory content. Add new facts or keep existing.\n\n"
+        std::string prompt = "Update the long-term curated memory (MEMORY.md) based on these recent distilled daily logs. "
+            "Maintain a strict focus on durable, high-value information. "
+            "KEEP: User identity, core preferences, significant projects/decisions, and persistent technical constraints. "
+            "DISCARD: Ephemeral data (weather, current readings, time), meta-activity (e.g., confirming a build script works), and trivial interaction. "
+            "PURGE: If the current memory contains outdated or unimportant data (like old weather stats), remove it. "
+            "Return a JSON object with:\n"
+            "1. \"history_entry\": A summary paragraph (2-3 sentences) of key outcomes to be indexed.\n"
+            "2. \"memory_update\": THE COMPLETE, updated long-term memory content (Markdown).\n\n"
             "## Current Memory\n" + current_mem + "\n\n"
-            "## Conversation\n" + conv.str();
+            "## Recent Daily Logs\n" + logs_context;
 
         std::vector<Message> msgs = {
             {"system", "You are a memory consolidation agent. Respond ONLY with valid JSON.", "", "", ""},

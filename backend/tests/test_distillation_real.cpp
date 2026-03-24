@@ -55,7 +55,7 @@ int main() {
             agent.loop().distill_l1_to_l2(session, 0, (int)session.messages.size(), AgentLoop::DistillationEvent::SESSION_END);
             
             std::cout << "[Fiber] Triggering L2 -> L3 Consolidation (Real Call)..." << std::endl;
-            agent.loop().consolidate_memory(session, 0, (int)session.messages.size());
+            agent.loop().consolidate_memory(session);
             
             std::cout << "[Fiber] Verification..." << std::endl;
             // Check if any log files were created in the actual workspace

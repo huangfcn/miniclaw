@@ -12,18 +12,8 @@
 
 #include "memory.hpp"
 #include "skills.hpp"
+#include "agent_types.hpp"
 #include <functional>
-
-namespace fs = std::filesystem;
-
-// Extended Message struct supporting all OpenAI roles
-struct Message {
-    std::string role;            // "system" | "user" | "assistant" | "tool"
-    std::string content;
-    std::string tool_call_id;    // for role="tool"
-    std::string name;            // for role="tool"
-    std::string tool_calls_json; // for role="assistant" with tool_calls (raw JSON array string)
-};
 
 class ContextBuilder {
 public:

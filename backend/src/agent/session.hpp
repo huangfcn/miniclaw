@@ -15,7 +15,7 @@
 #include <spdlog/spdlog.h>
 #include "../json_util.hpp"
 
-#include "context.hpp" // For Message struct
+#include "agent_types.hpp"
 
 namespace fs = std::filesystem;
 

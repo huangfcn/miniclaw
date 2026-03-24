@@ -12,7 +12,9 @@
 #include <thread>
 #include <uv.h>
 
-
+#include "agent/loop.hpp"
+#include "agent/session.hpp"
+#include "tools/tool.hpp"
 #include "agent/curl_manager.hpp"
 #include "agent/fiber_pool.hpp"
 #include "agent/subagent.hpp"
@@ -139,7 +141,7 @@ void Agent::run(const std::string &user_message, const std::string &session_id,
   }
 
   try {
-    loop_->process(user_message, session, on_event, channel, session_id);
+    loop_->run(user_message, session, on_event, channel, session_id);
   } catch (const std::exception &e) {
     spdlog::error("Error in Agent::run: {}", e.what());
     on_event({"error", e.what()});
@@ -152,6 +154,9 @@ void Agent::run(const std::string &user_message, const std::string &session_id,
 
   sessions_->save(session);
 }
+
+AgentLoop& Agent::loop() { return *loop_; }
+SessionManager& Agent::sessions() { return *sessions_; }
 
 // ─── Serialize a Message vector to JSON ──────────────────────────────────────
 

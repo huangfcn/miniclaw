@@ -4,15 +4,12 @@
 #include <functional>
 #include <memory>
 
-#include "agent/loop.hpp"
-#include "agent/session.hpp"
-#include "tools/tool.hpp"
-
-// Event callback type (same as AgentLoop's EventCallback)
+#include "agent/agent_types.hpp"
 using AgentEventCallback = EventCallback;
-
 #include "agent/shutdown.hpp"
 
+class AgentLoop;
+class SessionManager;
 class SubagentManager;
 
 void init_spawn_system();
@@ -32,7 +29,9 @@ public:
     );
 
     // Access to internal components for testing
-    AgentLoop& loop() { return *loop_; }
+    // Access to internal components
+    AgentLoop& loop();
+    SessionManager& sessions();
 
 private:
     std::unique_ptr<AgentLoop> loop_;

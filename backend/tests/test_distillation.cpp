@@ -104,7 +104,7 @@ int main() {
     session.add_message("user", "Now let's move to permanent memory.");
     session.add_message("assistant", "Finalizing memory store.");
     
-    loop.consolidate_memory(session, 0, (int)session.messages.size());
+    loop.consolidate_memory(session);
 
     // Verify L3 file exists
     fs::path l3_memory = fs::path(workspace) / "memory" / "MEMORY.md";

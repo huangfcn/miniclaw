@@ -48,7 +48,7 @@ int main() {
 
     std::cout << "Running Native Tool Call Test..." << std::endl;
 
-    loop.process("Write 'PASSED' to test_tool_use.txt", session, [](const AgentEvent& ev) {
+    loop.run("Write 'PASSED' to test_tool_use.txt", session, [](const AgentEvent& ev) {
         if (ev.type == "tool_start") {
             std::cout << "[TOOL START] " << ev.content << std::endl;
         } else if (ev.type == "tool_end") {

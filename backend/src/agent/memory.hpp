@@ -11,10 +11,7 @@
 #include <chrono>
 #include <ctime>
 #include <spdlog/spdlog.h>
-#include <functional>
-#include <vector>
-
-using EmbeddingFn = std::function<std::vector<float>(const std::string& text)>;
+#include "agent_types.hpp"
 
 namespace fs = std::filesystem;
 
@@ -102,6 +99,16 @@ public:
             ss << "## Long-term Memory (Curated Facts)\n\n" << lt << "\n\n";
         }
 
+        ss << get_recent_logs_for_consolidation();
+        return ss.str();
+    }
+
+    std::string read_daily_log(int offset_days) const {
+        return read_file(memory_dir_ / (get_date_string(offset_days) + ".md"));
+    }
+
+    std::string get_recent_logs_for_consolidation() const {
+        std::stringstream ss;
         auto yesterday = get_date_string(-1);
         auto today = get_date_string(0);
 
@@ -114,7 +121,6 @@ public:
         if (!today_log.empty()) {
             ss << "## Daily Log (" << today << " - Today)\n\n" << today_log << "\n\n";
         }
-
         return ss.str();
     }
 
