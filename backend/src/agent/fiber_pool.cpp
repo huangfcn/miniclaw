@@ -6,9 +6,7 @@
 #ifdef _WIN32
 #include <boost/fiber/algo/round_robin.hpp>
 #else
-extern "C" {
-#include "fiber.h"
-}
+#include <fiber.h>
 #endif
 
 #include <simdjson.h>
@@ -340,6 +338,16 @@ void FiberNode::thread_func() {
         shutdown_cv_.wait(lock, [this] { return !running_.load(); });
     }
 #else
+    // Create an idle keepalive fiber so the scheduler doesn't exit
+    // (fiber_thread_entry exits when only the scheduler fiber remains)
+    auto* idle_wrapper = new fiber_task_wrapper_t{[this]() {
+        while (running_.load()) {
+            fiber_usleep(500000); // 500ms
+        }
+    }};
+    fiber_t idle_fiber = fiber_create(fiber_entry_proxy, idle_wrapper, nullptr, 0);
+    fiber_resume(idle_fiber);
+
     fibthread_args_t fib_args;
     fib_args.fiberSchedulerCallback = [](void* args) -> bool {
         auto* self = static_cast<FiberNode*>(args);

@@ -39,10 +39,11 @@ else()
         find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
     else()
         find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
-        include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
     endif()
     include_directories(${Boost_INCLUDE_DIRS})
 endif()
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
 
 # Platform-specific fiber library
 set(FIBER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber")
