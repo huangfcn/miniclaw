@@ -27,7 +27,7 @@ set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
 set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
 set(FAISS_DIR "${THIRDPARTY_DIR}/faiss")
 set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
-set(LIBUV_DIR "${THIRDPARTY_DIR}/libuv")
+
 
 if(APPLE)
     set(BOOST_INC "/opt/homebrew/opt/boost/include")
@@ -54,6 +54,16 @@ else()
 endif()
 
 include(FetchContent)
+
+# libuv (build from source)
+FetchContent_Declare(
+  libuv
+  GIT_REPOSITORY https://github.com/libuv/libuv.git
+  GIT_TAG        v1.52.0
+)
+set(LIBUV_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LIBUV_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(libuv)
 
 # uSockets
 FetchContent_Declare(
@@ -105,8 +115,9 @@ target_compile_definitions(uSockets PRIVATE
 
 target_include_directories(uSockets PRIVATE 
     ${usockets_SOURCE_DIR}/src
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
 )
+target_link_libraries(uSockets PRIVATE uv_a)
 
 
 set_target_properties(uSockets PROPERTIES LINKER_LANGUAGE C)
@@ -122,7 +133,7 @@ add_executable(miniclaw
 target_include_directories(miniclaw PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
     ${yaml-cpp_SOURCE_DIR}/include
@@ -151,7 +162,7 @@ target_link_libraries(miniclaw PRIVATE
     pthread
     yaml-cpp
     simdjson
-    ${LIBUV_DIR}/lib/libuv.a
+    uv_a
     ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
@@ -190,13 +201,13 @@ endif()
 add_executable(test_fiber tests/test_fiber.cpp)
     target_include_directories(test_fiber PRIVATE 
     src
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
 )
 target_link_libraries(test_fiber PRIVATE 
     pthread
     CURL::libcurl
     simdjson
-    ${LIBUV_DIR}/lib/libuv.a
+    uv_a
     ${FIBER_LIBS}
 )
 
@@ -215,7 +226,7 @@ add_executable(test_agent_loop tests/test_agent_loop.cpp src/agent/memory_index.
 target_include_directories(test_agent_loop PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -229,7 +240,7 @@ target_link_libraries(test_agent_loop PRIVATE
     CURL::libcurl
     yaml-cpp
     simdjson
-    ${LIBUV_DIR}/lib/libuv.a
+    uv_a
     ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
@@ -271,7 +282,7 @@ target_include_directories(test_memory_index PRIVATE
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${EXTERNAL_DIR}/spdlog/include
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
 )
@@ -280,7 +291,7 @@ target_link_libraries(test_memory_index PRIVATE
     pthread
     yaml-cpp
     simdjson
-    ${LIBUV_DIR}/lib/libuv.a
+    uv_a
     ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
@@ -320,7 +331,7 @@ add_executable(test_distillation tests/test_distillation.cpp src/agent/memory_in
 target_include_directories(test_distillation PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${yaml-cpp_SOURCE_DIR}/include
@@ -332,7 +343,7 @@ target_link_libraries(test_distillation PRIVATE
     CURL::libcurl
     yaml-cpp
     simdjson
-    ${LIBUV_DIR}/lib/libuv.a
+    uv_a
     ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
@@ -372,7 +383,7 @@ add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent
 target_include_directories(test_distillation_real PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
@@ -391,7 +402,7 @@ target_link_libraries(test_distillation_real PRIVATE
     pthread
     yaml-cpp
     simdjson
-    ${LIBUV_DIR}/lib/libuv.a
+    uv_a
     ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
@@ -431,7 +442,7 @@ add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_poo
 target_include_directories(test_gmail PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
-    ${LIBUV_DIR}/include
+    ${libuv_SOURCE_DIR}/include
     ${FAISS_DIR}/include
     ${LUCENE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
@@ -450,7 +461,7 @@ target_link_libraries(test_gmail PRIVATE
     pthread
     yaml-cpp
     simdjson
-    ${LIBUV_DIR}/lib/libuv.a
+    uv_a
     ${FIBER_LIBS}
     ${FAISS_DIR}/lib/libfaiss.a
 )
