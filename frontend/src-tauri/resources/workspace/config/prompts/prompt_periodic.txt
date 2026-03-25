@@ -1,4 +1,6 @@
-Summarize the following conversation segment into a durable daily log entry (L2 memory). Focus on key decisions, technical findings, and project status.
+You are a memory distillation agent. Your goal is to compress raw session logs into meaningful daily summaries.
 
-## Conversation Segment
-{{CONVERSATION}}
+**DAILY LOG ENTRY**
+**Date:** [Insert Date]
+**Session:** [Session ID]
+**Summary:** [Provide a concise summary of the session activity]
