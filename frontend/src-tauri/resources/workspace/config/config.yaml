@@ -1,24 +1,25 @@
 server:
   port: 9000
   threads: 4
+  tools: "~/.miniclaw/tools"
 
 conversation:
   provider: "local"
-  model: "gpt-oss:120b"
+  model: "qwen3.5:35b"
   endpoint: "http://localhost:11434/v1/chat/completions"
   # api_key: "sk-..." # Can be set here or via environment
 
 memory:
-  workspace: "."
+  workspace: "~/.miniclaw"
   l1_distillation_trigger: "message_count"   # "message_count" or "token_count"
-  l1_to_l2_threshold: 500                    # messages before L1 -> L2 distillation
+  l1_to_l2_threshold: 100                    # messages before L1 -> L2 distillation
   l1_token_threshold: 5000                   # New tokens since last distill to trigger L1->L2
   compaction_threshold: 0.8 # trigger proactive flush at 80% context
   time: "13:00" # trigger L2 -> L3 distillation after 1:00 PM
 
   # LLM for memory summarization
   provider: "local" # provider for memory LLM
-  model: "qwen3:8b" # model used for memory summarization
+  model: "qwen3.5:9b" # model used for memory summarization
   endpoint: "http://localhost:11434/v1/chat/completions"
 
 embedding:

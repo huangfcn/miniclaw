@@ -31,10 +31,12 @@ list_dir(path: str) -> str
 ## Shell Execution
 
 ### exec
-Execute a shell command and return output.
+Execute a raw shell command literally. Provides Bash-like utilities (ls, grep, cat, etc.) via BusyBox on Windows.
 ```
 exec(command: str, working_dir: str = None) -> str
 ```
+
+**CRITICAL:** Do NOT add shell prefixes (like `shell:`, `bash:`, or `cmd /c`). Provide only the raw, ready-to-execute string.
 
 **Safety Notes:**
 - Commands have a configurable timeout (default 60s)
