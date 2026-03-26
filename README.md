@@ -8,24 +8,14 @@ This project features a lightning-fast **C++ Backend** powered by stackful corou
 
 ## 🚀 Key Features
 
-- **Fluent Chat UX**: A clean, responsive interface for interacting with your personal AI.
 - **ReAct Loop**: Intelligent reasoning and tool-use (Thought -> Action -> Observation).
 - **Extensible Skill System**: Modular, pluggable tools for terminal access, file management, and web browsing.
-- **Real-time Monitoring**: Visual telemetry for engine status, fiber nodes, and system logs.
-- **Visual Configuration**: Edit `config.yaml` directly within the app with instant reloading.
 - **Hybrid Search Engine**: Combined Vector Search (Faiss) and Keyword Search (Lucene++) for deep memory.
 - **3-Stage Distillation Memory**: Tiered memory management (Raw -> Daily -> Permanent).
 - **Fiber/Coroutine Architecture**: Experimental stackful coroutines in C++ for extreme concurrency.
-
----
-
-## 🖥 User Interface
-
-`miniclaw` offers a multi-faceted interface designed for both performance and transparency:
-
-- **Chat Interface**: The primary interaction layer with full history management and real-time streaming tokens.
-- **Monitoring Tab**: Launch and shut down the core engine, view real-time logs, and track system metrics like active fibers and uptime.
-- **Settings Tab**: Directly modify the engine configuration, switch LLM providers, and manage model endpoints without leaving the app.
+- **Fluent Chat UX**: A clean, responsive interface for interacting with your personal AI.
+- **Real-time Monitoring**: Visual telemetry for engine status, fiber nodes, and system logs.
+- **Visual Configuration**: Edit `config.yaml` directly within the app with instant reloading.
 
 ---
 
@@ -33,9 +23,9 @@ This project features a lightning-fast **C++ Backend** powered by stackful corou
 
 The system is built on a three-layer stack:
 
-1.  **Frontend (React + Vite + Tailwind)**: A modern, high-performance web interface.
+1.  **Core Engine (C++)**: The "brain" of miniclaw. Built with C++20, `libuv` (Event Loop), `libcurl` (Async IO), and `libfiber` (Stackful Coroutines).
 2.  **App Layer (Tauri + Rust)**: Manages the lifecycle of the core engine, handles system-level permissions, and provides a cross-platform bridge.
-3.  **Core Engine (C++)**: The "brain" of miniclaw. Built with C++20, `libuv` (Event Loop), `libcurl` (Async IO), and `libfiber` (Stackful Coroutines).
+3.  **Frontend (React + Vite + Tailwind)**: A modern, high-performance web interface.
 
 ---
 
@@ -67,17 +57,8 @@ npm install
 
 ### Running the Application
 
-`miniclaw` can be run as a full desktop app or by starting the components separately during development.
-
-#### Running via Tauri (Recommended)
-This launches the GUI and automatically starts the C++ core as a sidecar:
-```bash
-cd frontend
-npm run tauri dev
-```
-
-#### Running Components Separately
-For advanced debugging or independent testing:
+#### 1. Running Components Separately
+For development and independent testing, you can start the engine and the GUI in two steps:
 
 **Start the Backend Engine:**
 ```bash
@@ -90,6 +71,23 @@ cd backend
 cd frontend
 npm run tauri dev
 ```
+
+#### 2. Running via Tauri
+This launches the GUI and automatically starts the C++ core as a sidecar:
+```bash
+cd frontend
+npm run tauri dev
+```
+
+---
+
+## 🖥 User Interface
+
+`miniclaw` offers a multi-faceted interface designed for both performance and transparency:
+
+- **Chat Interface**: The primary interaction layer with full history management and real-time streaming tokens.
+- **Monitoring Tab**: Launch and shut down the core engine, view real-time logs, and track system metrics like active fibers and uptime.
+- **Settings Tab**: Directly modify the engine configuration, switch LLM providers, and manage model endpoints without leaving the app.
 
 ---
 
