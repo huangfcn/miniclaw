@@ -125,6 +125,9 @@ public:
         const std::string& channel = "",
         const std::string& chat_id = ""
     ) {
+        // Prevent SSE timeout by sending an initial event
+        on_event({"status", "Initializing..."});
+
         // Progressive logging: Add user message immediately
         session.add_message("user", user_message);
         context_.memory().index_session_message(session.key, "user", user_message);

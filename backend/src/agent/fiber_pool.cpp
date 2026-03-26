@@ -6,7 +6,7 @@
 #ifdef _WIN32
 #include <boost/fiber/algo/round_robin.hpp>
 #else
-#include <fiber.h>
+#include <fiber.hpp>
 #endif
 
 #include <simdjson.h>
@@ -106,6 +106,7 @@ struct fiber_task_wrapper_t {
     std::function<void()> task;
 };
 
+// Helper proxy function since third-party fiber expects C-style void*(*)(void*)
 static void* fiber_entry_proxy(void* arg) {
     auto* wrapper = static_cast<fiber_task_wrapper_t*>(arg);
     wrapper->task();
@@ -114,18 +115,23 @@ static void* fiber_entry_proxy(void* arg) {
 }
 
 void FiberNode::spawn(std::function<void()> task) {
+    if (FiberNode::current() == this) {
+        // We are already on the correct thread, spawn immediately
 #ifdef _WIN32
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        tasks_.push(std::move(task));
-    }
-    uv_async_send(&async_);
+        boost::fibers::fiber(task).detach();
 #else
-    // Third-party fiber mode
-    auto* wrapper = new fiber_task_wrapper_t{std::move(task)};
-    fiber_t fiber = fiber_create(fiber_entry_proxy, wrapper, nullptr, 0);
-    fiber_resume(fiber);
+        auto* wrapper = new fiber_task_wrapper_t{std::move(task)};
+        fiber_t fiber = fiber_create(fiber_entry_proxy, wrapper, nullptr, 1024 * 1024); // 1MB stack
+        fiber_resume(fiber);
 #endif
+    } else {
+        // We are on a different thread (e.g. MemoryIndex worker), use async bridge
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            tasks_.push(std::move(task));
+        }
+        uv_async_send(&async_);
+    }
 }
 
 void FiberNode::spawn_back_on_loop(std::function<void()> task) {
@@ -217,6 +223,25 @@ void FiberNode::thread_func() {
                 std::string chat_id = "chatcmpl-" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
 
                 spawn([this, res, aborted, chat_id, message, session_id]() {
+                    auto is_finished = std::make_shared<std::atomic<bool>>(false);
+                    
+                    // Keep-alive fiber to prevent uWS 60s idleTimeout
+                    spawn([this, res, aborted, is_finished]() {
+                        while (!*aborted && !*is_finished) {
+                            fiber_usleep(15000000); // 15s
+                            if (*aborted || *is_finished) break;
+                            auto write_ping = [res, aborted]() {
+                                if (*aborted) return;
+                                res->write(": keepalive\n\n");
+                            };
+#ifdef _WIN32
+                            write_ping();
+#else
+                            this->spawn_back_on_loop(write_ping);
+#endif
+                        }
+                    });
+
                     agent_->run(message, session_id, [this, res, aborted, chat_id](const AgentEvent& ev) {
                         if (*aborted) return;
 
@@ -251,6 +276,7 @@ void FiberNode::thread_func() {
                         this->spawn_back_on_loop(write_chunk);
 #endif
                     });
+                    *is_finished = true;
                 });
             }
         });
@@ -293,6 +319,25 @@ void FiberNode::thread_func() {
                    ->writeHeader("Access-Control-Allow-Origin", "*");
 
                 spawn([this, res, aborted, message, session_id]() {
+                    auto is_finished = std::make_shared<std::atomic<bool>>(false);
+                    
+                    // Keep-alive fiber to prevent uWS 60s idleTimeout
+                    spawn([this, res, aborted, is_finished]() {
+                        while (!*aborted && !*is_finished) {
+                            fiber_usleep(15000000); // 15s
+                            if (*aborted || *is_finished) break;
+                            auto write_ping = [res, aborted]() {
+                                if (*aborted) return;
+                                res->write(": keepalive\n\n");
+                            };
+#ifdef _WIN32
+                            write_ping();
+#else
+                            this->spawn_back_on_loop(write_ping);
+#endif
+                        }
+                    });
+
                     agent_->run(message, session_id, [this, res, aborted](const AgentEvent& ev) {
                         if (*aborted) return;
                         
@@ -311,6 +356,7 @@ void FiberNode::thread_func() {
                         this->spawn_back_on_loop(write_chunk);
 #endif
                     });
+                    *is_finished = true;
                 });
             }
         });
