@@ -24,6 +24,7 @@
 #include "tools/spawn.hpp"
 #include "tools/terminal.hpp"
 #include "tools/web.hpp"
+#include "tools/cron.hpp"
 
 
 void init_spawn_system() {
@@ -87,6 +88,7 @@ Agent::Agent() {
   loop_->register_tool("web_fetch", std::make_shared<WebFetchTool>());
   loop_->register_tool("spawn", std::make_shared<SpawnTool>(*subagents_));
   loop_->register_tool("gmail", std::make_shared<GmailTool>());
+  loop_->register_tool("cron", std::make_shared<CronTool>());
 
   // Register memory search tool schema (handled in AgentLoop::process)
   struct MemorySearchTool : public Tool {

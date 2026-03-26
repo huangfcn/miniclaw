@@ -1,5 +1,6 @@
 #include "agent.hpp"
 #include "agent/fiber_pool.hpp"
+#include "agent/cron_service.hpp"
 
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -171,6 +172,10 @@ int main() {
 
   init_spawn_system();
 
+  // Initialize and start CronService
+  CronService::instance().init(Config::instance().memory_workspace());
+  CronService::instance().start();
+
   int port = Config::instance().server_port();
   spdlog::info("Backend running on port {} (Non-blocking Fiber Nodes)", port);
 
@@ -190,7 +195,7 @@ int main() {
 
   spdlog::info("Initiating graceful shutdown...");
   FiberPool::instance().stop(); // Stop the FiberPool
-  // FiberGlobalShutdown(); // Not defined in fiber.h
+  CronService::instance().stop(); // Stop the CronService
   curl_global_cleanup(); // Cleanup libcurl
 
   spdlog::info("Shutdown complete. Exiting.");

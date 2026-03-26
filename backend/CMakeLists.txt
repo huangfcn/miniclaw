@@ -142,6 +142,7 @@ add_executable(miniclaw
     src/agent/fiber_pool.cpp
     src/agent/memory_index.cpp
     src/agent/shutdown.cpp
+    src/agent/cron_service.cpp
 )
 
 target_include_directories(miniclaw PRIVATE 
@@ -153,6 +154,7 @@ target_include_directories(miniclaw PRIVATE
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
+    ${THIRDPARTY_DIR}/croncpp
 )
 
 # Definitions for libfib / uWS
@@ -215,6 +217,7 @@ add_executable(test_fiber tests/test_fiber.cpp)
     target_include_directories(test_fiber PRIVATE 
     src
     ${libuv_SOURCE_DIR}/include
+    ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_fiber PRIVATE 
     pthread
@@ -246,6 +249,7 @@ target_include_directories(test_agent_loop PRIVATE
     ${simdjson_SOURCE_DIR}/src
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
+    ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_agent_loop PRIVATE 
     pthread
@@ -296,6 +300,7 @@ target_include_directories(test_memory_index PRIVATE
     ${libuv_SOURCE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
+    ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_memory_index PRIVATE 
     CURL::libcurl
@@ -347,6 +352,7 @@ target_include_directories(test_distillation PRIVATE
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
+    ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_distillation PRIVATE 
     pthread
@@ -389,7 +395,7 @@ else()
     target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
 endif()
 
-add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp)
+add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp)
 target_include_directories(test_distillation_real PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
@@ -447,7 +453,7 @@ else()
     target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
 endif()
 
-add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp)
+add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp)
 target_include_directories(test_gmail PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
