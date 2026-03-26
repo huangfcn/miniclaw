@@ -1,3 +1,5 @@
+# vscode
+.vscode/
 # backend 
 backend/backend.log
 backend/external/

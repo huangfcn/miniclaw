@@ -106,6 +106,23 @@ public:
     if (config_["memory"] && config_["memory"]["workspace"]) {
       std::string ws = config_["memory"]["workspace"].as<std::string>();
       if (ws != "." && ws != "./") {
+        // Expand ~ to home directory
+        if (ws.length() >= 1 && ws[0] == '~') {
+          std::string home;
+#if defined(_WIN32)
+          const char *h = std::getenv("USERPROFILE");
+          if (!h) h = std::getenv("HOME");
+#else
+          const char *h = std::getenv("HOME");
+#endif
+          if (h) home = h;
+          if (!home.empty()) {
+             // Handle raw "~" vs "~/foo"
+             if (ws.length() == 1) ws = home;
+             else if (ws[1] == '/') ws = home + ws.substr(1);
+          }
+        }
+        
         fs::path p(ws);
         if (p.is_relative()) {
           fs::path config_dir = fs::path(actual_config_path_).parent_path();

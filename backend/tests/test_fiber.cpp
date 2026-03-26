@@ -41,21 +41,6 @@ int main() {
     
     uv_loop_t* loop = uv_default_loop();
     
-    static auto uv_bridge = [](void* arg) -> bool {
-        uv_run((uv_loop_t*)arg, UV_RUN_NOWAIT);
-        return true;
-    };
-    
-    static fibthread_args_t fiber_args;
-    fiber_args.fiberSchedulerCallback = uv_bridge;
-    fiber_args.args = loop;
-    
-    std::thread sched_thread([&]() {
-        FiberThreadStartup();
-        fiber_thread_entry(&fiber_args);
-    });
-    sched_thread.detach();
-    
     TestData data;
     
     uv_async_init(loop, &data.async, [](uv_async_t* handle) {
@@ -71,6 +56,28 @@ int main() {
     });
     data.async.data = &data;
     data.fiber = nullptr;
+
+    static auto uv_bridge = [](void* arg) -> bool {
+        uv_run((uv_loop_t*)arg, UV_RUN_NOWAIT);
+        return true;
+    };
+    
+    static fibthread_args_t fiber_args;
+    fiber_args.fiberSchedulerCallback = uv_bridge;
+    fiber_args.args = loop;
+    
+    std::thread sched_thread([&]() {
+        FiberThreadStartup();
+        
+        // Dummy fiber to keep nLocalFibTasks > 1 so the scheduler doesn't exit immediately
+        fiber_create([](void*) -> void* {
+            while(true) fiber_usleep(1000000); // 1s
+            return nullptr;
+        }, nullptr, nullptr, 0);
+
+        fiber_thread_entry(&fiber_args);
+    });
+    sched_thread.detach();
     
     // Background thread to trigger pulses
     std::thread background([&]() {
