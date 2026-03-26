@@ -41,13 +41,23 @@ public:
             return "Error: busybox.exe not found at " + bb_path.string();
         }
 
-        std::string full_command = "\"" + bb_path.string() + "\" " + input;
+        std::string script_path = (std::filesystem::temp_directory_path() / "bb_temp_script.sh").string();
+        for (char& c : script_path) if (c == '\\') c = '/';
+
+        {
+            std::ofstream out(script_path);
+            out << input << "\n";
+        }
+
+        std::string full_command = "\"" + bb_path.string() + "\" sh \"" + script_path + "\" 2>&1";
         
         std::array<char, 4096> buffer;
         std::string result;
         
         // Use _popen to run the command on Windows
-        FILE* pipe = _popen(full_command.c_str(), "r");
+        // cmd.exe /c requires the entire command to be wrapped in quotes if it contains multiple quoted strings
+        std::string popen_command = "\"" + full_command + "\"";
+        FILE* pipe = _popen(popen_command.c_str(), "r");
 
         if (!pipe) {
             spdlog::error("BusyBoxTool: _popen() failed for command: {}", input);

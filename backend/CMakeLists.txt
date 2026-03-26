@@ -37,7 +37,7 @@ FetchContent_Declare(
   faiss
   GIT_REPOSITORY https://github.com/facebookresearch/faiss.git
   GIT_TAG        v1.8.0
-  PATCH_COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-msys2.patch
+  PATCH_COMMAND bash -c "git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-msys2.patch 2>/dev/null && git apply ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-msys2.patch || echo 'Patch already applied or failed'"
 )
 FetchContent_MakeAvailable(faiss)
 
