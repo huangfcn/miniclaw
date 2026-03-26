@@ -1,55 +1,103 @@
 # miniclaw 🦞🦀
 
-`miniclaw` is a high-performance, lightweight personal AI agent system, initially forked from the `nanobot` project. It is designed for **simplified, cross-platform deployment** as a single application on Windows, Linux, macOS, and mobile devices, providing a transparent, fast, and local-first IDE-like experience for interacting with LLMs and local tools.
+`miniclaw` is a high-performance, lightweight personal AI agent system. It is designed for **simplified, cross-platform deployment** as a single application on Windows, Linux, macOS, and mobile devices, providing a transparent, fast, and local-first IDE-like experience for interacting with LLMs and local tools.
 
-This project offers a high-performance C++ backend implementation designed for both a robust personal assistant and a platform for exploring advanced agentic architectures.
-
-## 🚀 Key Features
-
-- **ReAct Loop**: Intelligent reasoning and tool-use (Thought -> Action -> Observation).
-- **Extensible Skill System**: Easily expand capabilities with modular, pluggable tools and knowledge.
-- **Streaming SSE**: Real-time token streaming and tool event updates.
-- **Async I/O**: 100% non-blocking networking and file operations.
-- **3-Stage Distillation Memory**: Tiered memory management (Raw -> Daily -> Permanent) with event-based promotions (Periodic, Compaction, Session End).
-- **Hybrid Search Engine**: Combined Vector Search (Faiss) and Keyword Search (Lucene++) with full disk persistence and reciprocal rank fusion.
-- **Native Tools**:
-    - `terminal`: Execute shell commands.
-    - `file`: Robust reading and writing of local files.
-    - `web`: Search (Brave) and fetch/summarize web pages.
-- **Fiber/Coroutine Architecture**: Experimental stackful coroutines in C++ for lightning-fast responsiveness and smooth multitasking.
+This project features a lightning-fast **C++ Backend** powered by stackful coroutines (fibers) and a modern **Tauri-based Desktop GUI** for a premium user experience.
 
 ---
 
-## 🏛 Backend Architecture 🦞
-Located in `/backend`. This version is built for instant feedback and the exploration of lightweight, asynchronous agent logic.
+## 🚀 Key Features
 
-- **Stack**: C++20, `libuv` (Event Loop), `libcurl` (Async IO), `libfiber` (Stackful Coroutines), `uWebSockets`.
-- **Features**:
-    - **Subagents**: Spawn background agent tasks that run in independent fibers.
-    - **Fiber Scheduler**: Hybrid architecture that pulses `libuv` inside a fiber scheduler loop.
-    - **Hybrid Memory System**: Built-in 3-stage distillation pipeline with RAG (Faiss) and BM25 (Lucene++) indexing.
-    - **Session Persistence**: Full session management with local file storage.
+- **Fluent Chat UX**: A clean, responsive interface for interacting with your personal AI.
+- **ReAct Loop**: Intelligent reasoning and tool-use (Thought -> Action -> Observation).
+- **Extensible Skill System**: Modular, pluggable tools for terminal access, file management, and web browsing.
+- **Real-time Monitoring**: Visual telemetry for engine status, fiber nodes, and system logs.
+- **Visual Configuration**: Edit `config.yaml` directly within the app with instant reloading.
+- **Hybrid Search Engine**: Combined Vector Search (Faiss) and Keyword Search (Lucene++) for deep memory.
+- **3-Stage Distillation Memory**: Tiered memory management (Raw -> Daily -> Permanent).
+- **Fiber/Coroutine Architecture**: Experimental stackful coroutines in C++ for extreme concurrency.
 
-**Run Backend:**
+---
+
+## 🖥 User Interface
+
+`miniclaw` offers a multi-faceted interface designed for both performance and transparency:
+
+- **Chat Interface**: The primary interaction layer with full history management and real-time streaming tokens.
+- **Monitoring Tab**: Launch and shut down the core engine, view real-time logs, and track system metrics like active fibers and uptime.
+- **Settings Tab**: Directly modify the engine configuration, switch LLM providers, and manage model endpoints without leaving the app.
+
+---
+
+## 🏛 Architecture
+
+The system is built on a three-layer stack:
+
+1.  **Frontend (React + Vite + Tailwind)**: A modern, high-performance web interface.
+2.  **App Layer (Tauri + Rust)**: Manages the lifecycle of the core engine, handles system-level permissions, and provides a cross-platform bridge.
+3.  **Core Engine (C++)**: The "brain" of miniclaw. Built with C++20, `libuv` (Event Loop), `libcurl` (Async IO), and `libfiber` (Stackful Coroutines).
+
+---
+
+## 🛠 Getting Started
+
+### Prerequisites
+
+- **C++**: CMake 3.20+, OpenSSL, libcurl.
+- **Rust**: Latest stable toolchain (for Tauri).
+- **Node.js**: LTS version (for Frontend).
+- **API Keys**: Set `OPENAI_API_KEY` or configure your provider in the app.
+
+### Installation & Setup
+
+#### 1. Backend Setup
+First, prepare the C++ core:
 ```bash
 cd backend
-./scripts/build.sh
+./tools/setup_deps.sh
+./tools/build.sh
+```
+
+#### 2. Frontend Setup (First Time)
+Install the web dependencies:
+```bash
+cd frontend
+npm install
+```
+
+### Running the Application
+
+`miniclaw` can be run as a full desktop app or by starting the components separately during development.
+
+#### Running via Tauri (Recommended)
+This launches the GUI and automatically starts the C++ core as a sidecar:
+```bash
+cd frontend
+npm run tauri dev
+```
+
+#### Running Components Separately
+For advanced debugging or independent testing:
+
+**Start the Backend Engine:**
+```bash
+cd backend
 ./build/miniclaw
+```
+
+**Start the Frontend GUI:**
+```bash
+cd frontend
+npm run tauri dev
 ```
 
 ---
 
 ## 📦 Deployment Vision
 
-`miniclaw` is engineered with the ultimate goal of simplified, cross-platform deployment. The intention is for users to install it as a self-contained application on various operating systems, including Windows, Linux, macOS, and mobile devices. This focus on "single-application" deployment aims to abstract away technical complexities, providing a seamless personal assistant experience accessible to a broad user base.
+`miniclaw` is engineered with the goal of being a **single-binary installation**. The Tauri framework allows us to bundle the high-performance C++ backend as a sidecar, providing a seamless "click-to-run" experience across all major desktop and mobile platforms.
 
 ---
-
-## 🛠 Prerequisites
-
-- **C++**: CMake 3.20+, OpenSSL, libcurl.
-- **API Keys**: Set `OPENAI_API_KEY` or configure your LLM/Embedding provider in `backend/config/config.yaml`.
-- **Brave Search**: Optional `BRAVE_API_KEY` for web tools.
 
 ## 📖 Documentation
 
