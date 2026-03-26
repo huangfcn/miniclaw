@@ -1,6 +1,7 @@
 #include "agent.hpp"
 #include "agent/fiber_pool.hpp"
 
+#include <filesystem>
 namespace fs = std::filesystem;
 #include "agent/shutdown.hpp"
 #include <condition_variable>
@@ -15,7 +16,6 @@ namespace fs = std::filesystem;
 #include "config.hpp"
 #include <atomic>
 #include <chrono>
-#include <filesystem>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <unistd.h>
