@@ -31,11 +31,13 @@ set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
 set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
 set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
 set(FAISS_OPT_LEVEL "generic" CACHE STRING "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
   faiss
   GIT_REPOSITORY https://github.com/facebookresearch/faiss.git
   GIT_TAG        v1.8.0
+  PATCH_COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-msys2.patch
 )
 FetchContent_MakeAvailable(faiss)
 

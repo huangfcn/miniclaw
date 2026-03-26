@@ -1,0 +1,79 @@
+diff --git a/faiss/impl/platform_macros.h b/faiss/impl/platform_macros.h
+index 2aecc5122..c79154b6d 100644
+--- a/faiss/impl/platform_macros.h
++++ b/faiss/impl/platform_macros.h
+@@ -99,7 +99,15 @@ inline int __builtin_clzll(uint64_t x) {
+  *******************************************************/
+ 
+ #define FAISS_API
++
++#ifdef _WIN32
++#include <malloc.h>
++#define posix_memalign(p, a, s) \
++    (((*(p)) = _aligned_malloc((s), (a))), *(p) ? 0 : errno)
++#define posix_memalign_free _aligned_free
++#else
+ #define posix_memalign_free free
++#endif
+ 
+ // aligned should be *in front* of the declaration, for compatibility with
+ // windows
+diff --git a/faiss/invlists/InvertedListsIOHook.cpp b/faiss/invlists/InvertedListsIOHook.cpp
+index 0081c4f9a..2c3a60067 100644
+--- a/faiss/invlists/InvertedListsIOHook.cpp
++++ b/faiss/invlists/InvertedListsIOHook.cpp
+@@ -13,9 +13,9 @@
+ 
+ #include <faiss/invlists/BlockInvertedLists.h>
+ 
+-#ifndef _MSC_VER
++#ifndef _WIN32
+ #include <faiss/invlists/OnDiskInvertedLists.h>
+-#endif // !_MSC_VER
++#endif // !_WIN32
+ 
+ namespace faiss {
+ 
+@@ -33,7 +33,7 @@ namespace {
+ /// std::vector that deletes its contents
+ struct IOHookTable : std::vector<InvertedListsIOHook*> {
+     IOHookTable() {
+-#ifndef _MSC_VER
++#ifndef _WIN32
+         push_back(new OnDiskInvertedListsIOHook());
+ #endif
+         push_back(new BlockInvertedListsIOHook());
+diff --git a/faiss/utils/distances_simd.cpp b/faiss/utils/distances_simd.cpp
+index 323859f43..6141d1d81 100644
+--- a/faiss/utils/distances_simd.cpp
++++ b/faiss/utils/distances_simd.cpp
+@@ -1939,7 +1939,7 @@ void fvec_madd(size_t n, const float* a, float bf, const float* b, float* c) {
+ #ifdef __AVX2__
+     fvec_madd_avx2(n, a, bf, b, c);
+ #else
+-    if ((n & 3) == 0 && ((((long)a) | ((long)b) | ((long)c)) & 15) == 0)
++    if ((n & 3) == 0 && ((((uintptr_t)a) | ((uintptr_t)b) | ((uintptr_t)c)) & 15) == 0)
+         fvec_madd_sse(n, a, bf, b, c);
+     else
+         fvec_madd_ref(n, a, bf, b, c);
+@@ -2049,7 +2049,7 @@ int fvec_madd_and_argmin(
+         float bf,
+         const float* b,
+         float* c) {
+-    if ((n & 3) == 0 && ((((long)a) | ((long)b) | ((long)c)) & 15) == 0)
++    if ((n & 3) == 0 && ((((uintptr_t)a) | ((uintptr_t)b) | ((uintptr_t)c)) & 15) == 0)
+         return fvec_madd_and_argmin_sse(n, a, bf, b, c);
+     else
+         return fvec_madd_and_argmin_ref(n, a, bf, b, c);
+diff --git a/tests/test_ivf_index.cpp b/tests/test_ivf_index.cpp
+index 54cb7945f..1ad6c3a6c 100644
+--- a/tests/test_ivf_index.cpp
++++ b/tests/test_ivf_index.cpp
+@@ -12,6 +12,7 @@
+ #include <cstring>
+ #include <map>
+ #include <random>
++#include <algorithm>
+ 
+ #include <gtest/gtest.h>
+ 
