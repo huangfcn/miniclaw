@@ -406,6 +406,7 @@ target_include_directories(test_distillation_real PRIVATE
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
+    ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_distillation_real PRIVATE 
     uSockets
@@ -464,6 +465,7 @@ target_include_directories(test_gmail PRIVATE
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
+    ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_gmail PRIVATE 
     uSockets
