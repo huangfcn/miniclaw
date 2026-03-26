@@ -228,7 +228,11 @@ void FiberNode::thread_func() {
                     // Keep-alive fiber to prevent uWS 60s idleTimeout
                     spawn([this, res, aborted, is_finished]() {
                         while (!*aborted && !*is_finished) {
+#ifdef _WIN32
+                            boost::this_fiber::sleep_for(std::chrono::seconds(15));
+#else
                             fiber_usleep(15000000); // 15s
+#endif
                             if (*aborted || *is_finished) break;
                             auto write_ping = [res, aborted]() {
                                 if (*aborted) return;
@@ -324,7 +328,11 @@ void FiberNode::thread_func() {
                     // Keep-alive fiber to prevent uWS 60s idleTimeout
                     spawn([this, res, aborted, is_finished]() {
                         while (!*aborted && !*is_finished) {
+#ifdef _WIN32
+                            boost::this_fiber::sleep_for(std::chrono::seconds(15));
+#else
                             fiber_usleep(15000000); // 15s
+#endif
                             if (*aborted || *is_finished) break;
                             auto write_ping = [res, aborted]() {
                                 if (*aborted) return;
