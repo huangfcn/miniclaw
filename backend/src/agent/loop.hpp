@@ -200,6 +200,10 @@ public:
                 }
             } else {
                 // Final answer - Index it
+                if (response.content.empty() && iteration > 1) {
+                    response.content = "OK, the task has been processed.";
+                    on_event({"token", response.content});
+                }
                 context_.memory().index_session_message(session.key, "assistant", response.content);
                 session.add_message("assistant", response.content);
                 final_answer_reached = true;
