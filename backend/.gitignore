@@ -1,1 +1,15 @@
 build_output.txt
+
+# Android build output
+build-android/
+
+# libcurl-android
+third-party/libcurl-android/jni/openssl/
+third-party/libcurl-android/jni/curl/
+third-party/libcurl-android/jni/zlib/
+third-party/libcurl-android/jni/build/
+third-party/libcurl-android/libs/
+third-party/libcurl-android/obj/
+
+# openblas-android
+third-party/openblas-android/

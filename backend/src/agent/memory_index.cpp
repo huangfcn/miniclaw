@@ -9,6 +9,9 @@
 #include <chrono>
 #include <ctime>
 #include <regex>
+#ifdef USE_SQLITE
+#include <sqlite3.h>
+#else
 #include <lucene++/LuceneHeaders.h>
 #include <lucene++/IndexWriter.h>
 #include <lucene++/IndexReader.h>
@@ -22,6 +25,7 @@
 #include <lucene++/TopDocs.h>
 #include <lucene++/ScoreDoc.h>
 #include <lucene++/Term.h>
+#endif
 #include <filesystem>
 #include <spdlog/spdlog.h>
 #include <fiber.h>
@@ -34,7 +38,9 @@
 #include <functional>
 
 namespace fs = std::filesystem;
+#ifndef USE_SQLITE
 using namespace Lucene;
+#endif
 
 struct MemoryIndex::Impl {
     std::string index_path;
@@ -42,10 +48,14 @@ struct MemoryIndex::Impl {
     std::unique_ptr<faiss::IndexFlatIP> faiss_index;
     std::vector<std::string> doc_ids;
     
-    // Lucene++ components
+    // Search backend components
+#ifdef USE_SQLITE
+    sqlite3* db = nullptr;
+#else
     String lucene_path;
     AnalyzerPtr analyzer;
     DirectoryPtr directory;
+#endif
 
     // Service thread components
     struct Request {
@@ -98,10 +108,24 @@ struct MemoryIndex::Impl {
             }
         }
         
+#ifdef USE_SQLITE
+        std::string db_path = path + "/index.db";
+        if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+            spdlog::error("Failed to open SQLite database: {}", sqlite3_errmsg(db));
+        } else {
+            const char* sql = "CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(id UNINDEXED, path UNINDEXED, text, start_line UNINDEXED, end_line UNINDEXED, source UNINDEXED);";
+            char* err_msg = nullptr;
+            if (sqlite3_exec(db, sql, nullptr, nullptr, &err_msg) != SQLITE_OK) {
+                spdlog::error("Failed to create FTS5 table: {}", err_msg);
+                sqlite3_free(err_msg);
+            }
+        }
+#else
         lucene_path = StringUtils::toUnicode(path + "/lucene");
         fs::create_directories(path + "/lucene");
         analyzer = newLucene<StandardAnalyzer>(LuceneVersion::LUCENE_CURRENT);
         directory = FSDirectory::open(lucene_path);
+#endif
 
         worker_thread = std::thread(&Impl::worker_loop, this);
     }
@@ -110,6 +134,9 @@ struct MemoryIndex::Impl {
         running = false;
         queue_cv.notify_all();
         if (worker_thread.joinable()) worker_thread.join();
+#ifdef USE_SQLITE
+        if (db) sqlite3_close(db);
+#endif
     }
 
     void clear_internal() {
@@ -119,6 +146,11 @@ struct MemoryIndex::Impl {
         fs::remove(fs::path(index_path) / "faiss.index");
         fs::remove(fs::path(index_path) / "doc_ids.txt");
         
+#ifdef USE_SQLITE
+        if (db) {
+            sqlite3_exec(db, "DELETE FROM docs;", nullptr, nullptr, nullptr);
+        }
+#else
         try {
             if (directory && analyzer) {
                 IndexWriterPtr writer = newLucene<IndexWriter>(directory, analyzer, false, IndexWriter::MaxFieldLengthLIMITED);
@@ -130,6 +162,7 @@ struct MemoryIndex::Impl {
         } catch (...) {
             spdlog::warn("Lucene clear failed with unknown error");
         }
+#endif
     }
 
     void worker_loop() {
@@ -196,7 +229,27 @@ struct MemoryIndex::Impl {
             }
         }
 
-        // 2. Add to Lucene++
+        // 2. Add to Search Backend
+#ifdef USE_SQLITE
+        if (!db) return;
+        const char* sql = "INSERT INTO docs(id, path, text, start_line, end_line, source) VALUES(?, ?, ?, ?, ?, ?);";
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, path.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 3, text.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(stmt, 4, start_line);
+            sqlite3_bind_int(stmt, 5, end_line);
+            sqlite3_bind_text(stmt, 6, source.c_str(), -1, SQLITE_TRANSIENT);
+            
+            if (sqlite3_step(stmt) != SQLITE_DONE) {
+                spdlog::warn("SQLite insert failed: {}", sqlite3_errmsg(db));
+            }
+            sqlite3_finalize(stmt);
+        } else {
+            spdlog::warn("SQLite prepare failed: {}", sqlite3_errmsg(db));
+        }
+#else
         try {
             if (!directory || !analyzer) return;
 
@@ -216,6 +269,7 @@ struct MemoryIndex::Impl {
         } catch (...) {
             spdlog::warn("Lucene add_doc failed");
         }
+#endif
     }
 
     std::vector<SearchResult> search_internal(
@@ -248,6 +302,35 @@ struct MemoryIndex::Impl {
 
         // 2. Keyword Search
         if (!query.empty()) {
+#ifdef USE_SQLITE
+            if (db) {
+                const char* sql = "SELECT id, path, text, start_line, end_line, source FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ?;";
+                sqlite3_stmt* stmt;
+                if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+                    sqlite3_bind_text(stmt, 1, query.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(stmt, 2, top_k * 4);
+                    
+                    int i = 0;
+                    while (sqlite3_step(stmt) == SQLITE_ROW) {
+                        std::string id = (const char*)sqlite3_column_text(stmt, 0);
+                        text_scores[id] = 1.0f / (1.0f + (float)i++);
+                        
+                        if (metadata.find(id) == metadata.end()) {
+                            metadata[id] = {
+                                id,
+                                (const char*)sqlite3_column_text(stmt, 1),
+                                sqlite3_column_int(stmt, 3),
+                                sqlite3_column_int(stmt, 4),
+                                (const char*)sqlite3_column_text(stmt, 2),
+                                0.0f,
+                                (const char*)sqlite3_column_text(stmt, 5)
+                            };
+                        }
+                    }
+                    sqlite3_finalize(stmt);
+                }
+            }
+#else
             try {
                 IndexReaderPtr reader = IndexReader::open(directory);
                 if (reader) {
@@ -284,6 +367,7 @@ struct MemoryIndex::Impl {
             } catch (...) {
                 spdlog::warn("Lucene search failed");
             }
+#endif
         }
 
         // 3. Fusion & Decay
@@ -294,7 +378,7 @@ struct MemoryIndex::Impl {
         // For now, if metadata is missing, we try to fetch it from Lucene by ID
         for (auto const& [id, vec_score] : vector_scores) {
             if (metadata.find(id) == metadata.end()) {
-                fetch_metadata_from_lucene(id, metadata);
+                fetch_metadata_from_backend(id, metadata);
             }
         }
 
@@ -327,7 +411,27 @@ struct MemoryIndex::Impl {
     }
 
 private:
-    void fetch_metadata_from_lucene(const std::string& id, std::map<std::string, SearchResult>& metadata) {
+    void fetch_metadata_from_backend(const std::string& id, std::map<std::string, SearchResult>& metadata) {
+#ifdef USE_SQLITE
+        if (!db) return;
+        const char* sql = "SELECT path, start_line, end_line, text, source FROM docs WHERE id = ? LIMIT 1;";
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                metadata[id] = {
+                    id,
+                    (const char*)sqlite3_column_text(stmt, 0),
+                    sqlite3_column_int(stmt, 1),
+                    sqlite3_column_int(stmt, 2),
+                    (const char*)sqlite3_column_text(stmt, 3),
+                    0.0f,
+                    (const char*)sqlite3_column_text(stmt, 4)
+                };
+            }
+            sqlite3_finalize(stmt);
+        }
+#else
         try {
             IndexReaderPtr reader = IndexReader::open(directory);
             if (reader) {
@@ -353,6 +457,7 @@ private:
         } catch (...) {
             // Silently fail if metadata can't be fetched
         }
+#endif
     }
 
     float apply_temporal_decay(const std::string& path, double lambda) {

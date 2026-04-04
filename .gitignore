@@ -10,8 +10,8 @@ backend/dist/
 backend/third-party/faiss/
 backend/third-party/LucenePlusPlus/
 backend/third-party/LucenePlusPlus/*
-backend/third-party/fiber/
-backend/third-party/libuv/
+backend/third-party/fiber/*.o
+backend/third-party/fiber/lib/
 backend/third-party/fiber-src.tar.gz
 backend/third-party/busybox-w32/
 

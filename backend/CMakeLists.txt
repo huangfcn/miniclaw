@@ -1,14 +1,59 @@
 cmake_minimum_required(VERSION 3.10)
-project(miniclaw VERSION 0.1.0 LANGUAGES C CXX)
+project(miniclaw VERSION 0.1.0 LANGUAGES C CXX ASM)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find OpenSSL, CURL, and ZLIB
-find_package(OpenSSL REQUIRED)
-find_package(CURL REQUIRED)
-find_package(ZLIB REQUIRED)
+if(ANDROID)
+    set(PTHREAD_LIB "")
+    set(BLAS_LAPACK_LIBS openblas)
+else()
+    set(PTHREAD_LIB pthread)
+    set(BLAS_LAPACK_LIBS blas lapack)
+endif()
+
+if(ANDROID)
+    set(ANDROID_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/libcurl-android/jni/build")
+    set(OPENSSL_ROOT_DIR "${ANDROID_LIBS_DIR}/openssl/arm64-v8a")
+    set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
+    set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libcrypto.a")
+    set(OPENSSL_SSL_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libssl.a")
+    
+    set(CURL_INCLUDE_DIR "${ANDROID_LIBS_DIR}/curl/arm64-v8a/include")
+    set(CURL_LIBRARY "${ANDROID_LIBS_DIR}/curl/arm64-v8a/lib/libcurl.a")
+    set(ZLIB_INCLUDE_DIR "${ANDROID_LIBS_DIR}/zlib/arm64-v8a/include")
+    set(ZLIB_LIBRARY "${ANDROID_LIBS_DIR}/zlib/arm64-v8a/lib/libz.a")
+    
+    # Manually define targets for find_package(CURL) if it fails
+    add_library(CURL::libcurl STATIC IMPORTED)
+    set_target_properties(CURL::libcurl PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${CURL_INCLUDE_DIR}"
+        IMPORTED_LOCATION "${CURL_LIBRARY}"
+    )
+    
+    add_library(OpenSSL::Crypto STATIC IMPORTED)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
+        IMPORTED_LOCATION "${OPENSSL_CRYPTO_LIBRARY}"
+    )
+    
+    add_library(OpenSSL::SSL STATIC IMPORTED)
+    set_target_properties(OpenSSL::SSL PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
+        IMPORTED_LOCATION "${OPENSSL_SSL_LIBRARY}"
+    )
+    
+    add_library(ZLIB::ZLIB STATIC IMPORTED)
+    set_target_properties(ZLIB::ZLIB PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}"
+        IMPORTED_LOCATION "${ZLIB_LIBRARY}"
+    )
+else()
+    find_package(OpenSSL REQUIRED)
+    find_package(CURL REQUIRED)
+    find_package(ZLIB REQUIRED)
+endif()
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # Tell CMake where to find OpenMP for Apple Clang
@@ -27,6 +72,40 @@ include(FetchContent)
 # Define directories early for all targets
 set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
 set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
+# OpenBLAS (for Android)
+if(ANDROID)
+    # Force Android defines for OpenBLAS build
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DOS_ANDROID=1 -DOS_LINUX=1 -DNO_AFFINITY=1")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_ANDROID=1 -DOS_LINUX=1 -DNO_AFFINITY=1")
+
+    FetchContent_Declare(
+      openblas
+      GIT_REPOSITORY https://github.com/OpenMathLib/OpenBLAS.git
+      GIT_TAG        v0.3.27
+    )
+    set(OS_ANDROID 1 CACHE BOOL "" FORCE)
+    set(OS_LINUX 1 CACHE BOOL "" FORCE)
+    set(NO_SYSCTL 1 CACHE BOOL "" FORCE)
+    set(NO_AFFINITY 1 CACHE BOOL "" FORCE)
+    set(NOFORTRAN 1 CACHE BOOL "" FORCE)
+    set(ONLY_CBLAS 1 CACHE BOOL "" FORCE)
+    set(NO_LAPACK 1 CACHE BOOL "" FORCE)
+    set(BUILD_WITHOUT_LAPACK 1 CACHE BOOL "" FORCE)
+    set(C_LAPACK OFF CACHE BOOL "" FORCE)
+    set(BUILD_SINGLE ON CACHE BOOL "" FORCE)
+    set(BUILD_DOUBLE ON CACHE BOOL "" FORCE)
+    set(BUILD_COMPLEX ON CACHE BOOL "" FORCE)
+    set(BUILD_COMPLEX16 ON CACHE BOOL "" FORCE)
+    set(BUILD_LAPACK_DEPRECATED ON CACHE BOOL "" FORCE)
+    # Match Android ABI
+    if(ANDROID_ABI STREQUAL "arm64-v8a")
+        set(TARGET ARMV8 CACHE STRING "" FORCE)
+    endif()
+    FetchContent_MakeAvailable(openblas)
+    set(BLAS_LIBRARIES openblas CACHE STRING "" FORCE)
+    set(LAPACK_LIBRARIES openblas CACHE STRING "" FORCE)
+endif()
+
 # Faiss (build from source)
 set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
 set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
@@ -41,21 +120,49 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(faiss)
 
-set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
+option(USE_SQLITE "Use SQLite FTS5 instead of LucenePlusPlus" OFF)
+if(USE_SQLITE)
+    add_compile_definitions(USE_SQLITE)
+endif()
 
-
-if(APPLE)
-    set(BOOST_INC "/opt/homebrew/opt/boost/include")
-    set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
-    include_directories(${BOOST_INC})
-    link_directories(${BOOST_LIB})
+if(USE_SQLITE)
+    # Fetch SQLite amalgamation
+    FetchContent_Declare(
+      sqlite3
+      URL      https://www.sqlite.org/2024/sqlite-amalgamation-3460000.zip
+    )
+    FetchContent_MakeAvailable(sqlite3)
+    
+    # Define a static library for SQLite with FTS5 enabled
+    add_library(sqlite3_lib STATIC ${sqlite3_SOURCE_DIR}/sqlite3.c)
+    target_include_directories(sqlite3_lib PUBLIC ${sqlite3_SOURCE_DIR})
+    target_compile_definitions(sqlite3_lib PRIVATE SQLITE_ENABLE_FTS5)
+    set(SEARCH_INCLUDES ${sqlite3_SOURCE_DIR})
+    set(SEARCH_LIBS sqlite3_lib)
 else()
-    if(WIN32)
-        find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
+    set(LUCENE_DIR "${THIRDPARTY_DIR}/LucenePlusPlus")
+    set(SEARCH_INCLUDES ${LUCENE_DIR}/include)
+    set(SEARCH_LIBS 
+        ${LUCENE_DIR}/lib/liblucene++.a 
+        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+    )
+endif()
+
+
+if(NOT ANDROID)
+    if(APPLE)
+        set(BOOST_INC "/opt/homebrew/opt/boost/include")
+        set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
+        include_directories(${BOOST_INC})
+        link_directories(${BOOST_LIB})
     else()
-        find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
+        if(WIN32)
+            find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
+        else()
+            find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
+        endif()
+        include_directories(${Boost_INCLUDE_DIRS})
     endif()
-    include_directories(${Boost_INCLUDE_DIRS})
 endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
@@ -65,7 +172,16 @@ set(FIBER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber")
 if(WIN32)
     set(FIBER_LIBS Boost::fiber Boost::context)
 else()
-    set(FIBER_LIBS ${FIBER_DIR}/lib/libfiber.a)
+    # Build libfiber from source for all other platforms
+    add_library(fiber_lib STATIC 
+        ${FIBER_DIR}/fiber.c
+        ${FIBER_DIR}/context.S
+    )
+    target_include_directories(fiber_lib PUBLIC 
+        ${FIBER_DIR}/include
+        ${FIBER_DIR}
+    )
+    set(FIBER_LIBS fiber_lib)
 endif()
 
 
@@ -145,6 +261,10 @@ add_executable(miniclaw
     src/agent/cron_service.cpp
 )
 
+if(ANDROID)
+    target_sources(miniclaw PRIVATE src/agent/lapack_android_stub.c)
+endif()
+
 target_include_directories(miniclaw PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
@@ -163,9 +283,7 @@ target_compile_definitions(miniclaw PRIVATE
 )
 
 
-target_include_directories(miniclaw PRIVATE 
-    ${LUCENE_DIR}/include
-)
+target_include_directories(miniclaw PRIVATE ${SEARCH_INCLUDES})
 
 target_link_libraries(miniclaw PRIVATE 
     uSockets
@@ -173,27 +291,25 @@ target_link_libraries(miniclaw PRIVATE
     OpenSSL::Crypto
     CURL::libcurl
     ZLIB::ZLIB
-    z
-    pthread
-    yaml-cpp
-    simdjson
     uv_a
     ${FIBER_LIBS}
     faiss
+    yaml-cpp
+    simdjson
 )
+
+# (Search libs included in platform blocks)
 
 if(APPLE)
     target_link_libraries(miniclaw PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(miniclaw PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(miniclaw PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         openblas
         ws2_32
         iphlpapi
@@ -204,13 +320,13 @@ elseif(WIN32)
     target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(miniclaw PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         OpenMP::OpenMP_CXX
-        blas
-        lapack
     )
-    target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
+    target_link_libraries(miniclaw PRIVATE ${BLAS_LAPACK_LIBS})
+    if(NOT ANDROID)
+        target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
+    endif()
 endif()
 
 add_executable(test_fiber tests/test_fiber.cpp)
@@ -220,7 +336,7 @@ add_executable(test_fiber tests/test_fiber.cpp)
     ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_fiber PRIVATE 
-    pthread
+    ${PTHREAD_LIB}
     CURL::libcurl
     simdjson
     uv_a
@@ -243,7 +359,7 @@ target_include_directories(test_agent_loop PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${libuv_SOURCE_DIR}/include
-    ${LUCENE_DIR}/include
+    ${SEARCH_INCLUDES}
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
@@ -252,7 +368,7 @@ target_include_directories(test_agent_loop PRIVATE
     ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_agent_loop PRIVATE 
-    pthread
+    ${PTHREAD_LIB}
     CURL::libcurl
     yaml-cpp
     simdjson
@@ -263,16 +379,14 @@ target_link_libraries(test_agent_loop PRIVATE
 
 if(APPLE)
     target_link_libraries(test_agent_loop PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(test_agent_loop PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_agent_loop PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         openblas
         ws2_32
         iphlpapi
@@ -283,11 +397,9 @@ elseif(WIN32)
     target_link_libraries(test_agent_loop PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(test_agent_loop PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         OpenMP::OpenMP_CXX
-        blas
-        lapack
+        ${BLAS_LAPACK_LIBS}
     )
     target_link_libraries(test_agent_loop PRIVATE ${Boost_LIBRARIES})
 endif()
@@ -295,7 +407,7 @@ endif()
 add_executable(test_memory_index tests/test_memory_index.cpp src/agent/memory_index.cpp)
 target_include_directories(test_memory_index PRIVATE 
     src
-    ${LUCENE_DIR}/include
+    ${SEARCH_INCLUDES}
     ${EXTERNAL_DIR}/spdlog/include
     ${libuv_SOURCE_DIR}/include
     ${uwebsockets_SOURCE_DIR}/src
@@ -304,7 +416,7 @@ target_include_directories(test_memory_index PRIVATE
 )
 target_link_libraries(test_memory_index PRIVATE 
     CURL::libcurl
-    pthread
+    ${PTHREAD_LIB}
     yaml-cpp
     simdjson
     uv_a
@@ -314,16 +426,14 @@ target_link_libraries(test_memory_index PRIVATE
 
 if(APPLE)
     target_link_libraries(test_memory_index PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(test_memory_index PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_memory_index PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         openblas
         ws2_32
         iphlpapi
@@ -334,11 +444,9 @@ elseif(WIN32)
     target_link_libraries(test_memory_index PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(test_memory_index PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         OpenMP::OpenMP_CXX
-        blas
-        lapack
+        ${BLAS_LAPACK_LIBS}
     )
     target_link_libraries(test_memory_index PRIVATE ${Boost_LIBRARIES})
 endif()
@@ -348,14 +456,14 @@ target_include_directories(test_distillation PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${libuv_SOURCE_DIR}/include
-    ${LUCENE_DIR}/include
+    ${SEARCH_INCLUDES}
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/src
     ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_distillation PRIVATE 
-    pthread
+    ${PTHREAD_LIB}
     CURL::libcurl
     yaml-cpp
     simdjson
@@ -366,16 +474,14 @@ target_link_libraries(test_distillation PRIVATE
 
 if(APPLE)
     target_link_libraries(test_distillation PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(test_distillation PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_distillation PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         openblas
         ws2_32
         iphlpapi
@@ -386,11 +492,9 @@ elseif(WIN32)
     target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(test_distillation PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         OpenMP::OpenMP_CXX
-        blas
-        lapack
+        ${BLAS_LAPACK_LIBS}
     )
     target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
 endif()
@@ -400,7 +504,7 @@ target_include_directories(test_distillation_real PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${libuv_SOURCE_DIR}/include
-    ${LUCENE_DIR}/include
+    ${SEARCH_INCLUDES}
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
     ${yaml-cpp_SOURCE_DIR}/include
@@ -415,7 +519,7 @@ target_link_libraries(test_distillation_real PRIVATE
     CURL::libcurl
     ZLIB::ZLIB
     z
-    pthread
+    ${PTHREAD_LIB}
     yaml-cpp
     simdjson
     uv_a
@@ -425,16 +529,14 @@ target_link_libraries(test_distillation_real PRIVATE
 
 if(APPLE)
     target_link_libraries(test_distillation_real PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(test_distillation_real PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_distillation_real PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         openblas
         ws2_32
         iphlpapi
@@ -445,11 +547,9 @@ elseif(WIN32)
     target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(test_distillation_real PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         OpenMP::OpenMP_CXX
-        blas
-        lapack
+        ${BLAS_LAPACK_LIBS}
     )
     target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
 endif()
@@ -459,7 +559,7 @@ target_include_directories(test_gmail PRIVATE
     src
     ${EXTERNAL_DIR}/spdlog/include
     ${libuv_SOURCE_DIR}/include
-    ${LUCENE_DIR}/include
+    ${SEARCH_INCLUDES}
     ${uwebsockets_SOURCE_DIR}/src
     ${usockets_SOURCE_DIR}/src
     ${yaml-cpp_SOURCE_DIR}/include
@@ -474,7 +574,7 @@ target_link_libraries(test_gmail PRIVATE
     CURL::libcurl
     ZLIB::ZLIB
     z
-    pthread
+    ${PTHREAD_LIB}
     yaml-cpp
     simdjson
     uv_a
@@ -484,16 +584,14 @@ target_link_libraries(test_gmail PRIVATE
 
 if(APPLE)
     target_link_libraries(test_gmail PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
     target_link_libraries(test_gmail PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_gmail PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         openblas
         ws2_32
         iphlpapi
@@ -504,11 +602,9 @@ elseif(WIN32)
     target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
 else()
     target_link_libraries(test_gmail PRIVATE 
-        ${LUCENE_DIR}/lib/liblucene++.a
-        ${LUCENE_DIR}/lib/liblucene++-contrib.a
+        ${SEARCH_LIBS}
         OpenMP::OpenMP_CXX
-        blas
-        lapack
+        ${BLAS_LAPACK_LIBS}
     )
     target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
 endif()
@@ -521,7 +617,7 @@ target_include_directories(test_busybox PRIVATE
     ${yaml-cpp_SOURCE_DIR}/include
     ${simdjson_SOURCE_DIR}/include
 )
-target_link_libraries(test_busybox PRIVATE pthread yaml-cpp simdjson)
+target_link_libraries(test_busybox PRIVATE ${PTHREAD_LIB} yaml-cpp simdjson)
 if(WIN32)
     target_link_libraries(test_busybox PRIVATE ws2_32 iphlpapi userenv dbghelp)
     target_link_libraries(test_busybox PRIVATE ${Boost_LIBRARIES})
