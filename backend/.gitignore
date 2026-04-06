@@ -11,5 +11,28 @@ third-party/libcurl-android/jni/build/
 third-party/libcurl-android/libs/
 third-party/libcurl-android/obj/
 
+# faiss
+third-party/faiss/
+
+# lucene
+third-party/LucenePlusPlus/
+third-party/LucenePlusPlus/*
+
+# fiber
+third-party/fiber/*.o
+third-party/fiber/lib/
+
+# busybox
+third-party/busybox-w32/
+
 # openblas-android
 third-party/openblas-android/
+
+# backend 
+backend.log
+external/
+build
+dist/
+
+# test output
+*test*.txt

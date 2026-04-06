@@ -13,13 +13,21 @@ BASE_PATH="$(cd "$(dirname "$0")"; pwd)"
 cd "$BASE_PATH"
 
 # ------------------------------------------------------
-# 1. Install macOS build prerequisites (requires Homebrew)
+# 1. Install build prerequisites
 # ------------------------------------------------------
-echo "==> Installing build prerequisites..."
-brew install autoconf automake libtool m4 pkg-config
-
-# Add GNU libtool to PATH so autoreconf finds the right macros
-export PATH="/opt/homebrew/opt/libtool/libexec/gnubin:$PATH"
+echo "==> Checking build prerequisites..."
+host=$(uname | tr 'A-Z' 'a-z')
+if [ "$host" = "darwin" ]; then
+    echo "==> Installing macOS prerequisites..."
+    brew install autoconf automake libtool m4 pkg-config
+    # Add GNU libtool to PATH so autoreconf finds the right macros
+    export PATH="/opt/homebrew/opt/libtool/libexec/gnubin:$PATH"
+elif [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* ]]; then
+    echo "==> Windows MSYS2 detected, installing prerequisites via pacman..."
+    pacman -S --needed --noconfirm autoconf automake libtool m4 pkg-config
+else
+    echo "==> Linux detected, ensure autoconf, automake, libtool, m4, pkg-config are installed."
+fi
 
 # ------------------------------------------------------
 # 2. Download source code (git clone)
@@ -60,5 +68,7 @@ fi
 echo ""
 echo "==> Preparation complete. Now run:"
 echo "      export NDK_ROOT=$NDK_ROOT"
-echo "      export PATH=\"/opt/homebrew/opt/libtool/libexec/gnubin:\$PATH\""
+if [ "$host" = "darwin" ]; then
+    echo "      export PATH=\"/opt/homebrew/opt/libtool/libexec/gnubin:\$PATH\""
+fi
 echo "      ./build_for_android.sh"

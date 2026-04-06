@@ -51,6 +51,15 @@ cmake -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
       -DCMAKE_CXX_FLAGS="-I$BUILD_DIR/fake_include" \
       ..
 
-make -j$(sysctl -n hw.ncpu) miniclaw
+# CPU count
+if command -v nproc >/dev/null 2>&1; then
+    NCPU=$(nproc)
+elif command -v sysctl >/dev/null 2>&1; then
+    NCPU=$(sysctl -n hw.ncpu)
+else
+    NCPU=4
+fi
+
+cmake --build . --target miniclaw --parallel $NCPU
 
 echo "✅ Android build complete! Output at $BUILD_DIR/miniclaw"

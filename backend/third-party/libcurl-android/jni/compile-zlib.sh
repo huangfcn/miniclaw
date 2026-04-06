@@ -96,19 +96,32 @@ compile() {
 	make clean
 	checkExitCode $?
 	# make
-	make -j$(sysctl -n hw.ncpu)
+	make -j$NCPU
 	checkExitCode $?
 	# install
 	make install
 	checkExitCode $?
 }
 
+# CPU count
+if command -v nproc >/dev/null 2>&1; then
+    NCPU=$(nproc)
+elif command -v sysctl >/dev/null 2>&1; then
+    NCPU=$(sysctl -n hw.ncpu)
+else
+    NCPU=4
+fi
+
 # check system
 host=$(uname | tr 'A-Z' 'a-z')
-if [ $host = "darwin" ] || [ $host = "linux" ]; then
+if [ "$host" = "darwin" ] || [ "$host" = "linux" ]; then
 	echo "system: $host"
+elif [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* ]]; then
+	host="windows"
+	echo "system: $host"
+	export NDK_ROOT=$(cygpath -u "$NDK_ROOT")
 else
-	echo "unsupport system, only support Mac OS X and Linux now."
+	echo "unsupported system, only support Mac OS X and Linux now."
 	exit 1
 fi
 

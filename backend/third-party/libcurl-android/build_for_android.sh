@@ -92,7 +92,7 @@ compile() {
 	export NM=$TOOLCHAIN/llvm-nm
 	export STRIP=$TOOLCHAIN/llvm-strip
 	export CFLAGS="--sysroot=$SYSROOT $CFLAGS"
-	export CPPFLAGS="-I$SYSROOT/usr/include --sysroot=$SYSROOT"
+	export CPPFLAGS="-I$SYSROOT/usr/include --sysroot=$SYSROOT -I$BUILD_PATH/openssl/$ABI/include -I$BUILD_PATH/zlib/$ABI/include"
 	export LDFLAGS="-L$BUILD_PATH/openssl/$ABI/lib -L$BUILD_PATH/zlib/$ABI/lib"
 	export LIBS="-lssl -lcrypto -lc++ -lz"
 	#export PKG_CONFIG_PATH="$BUILD_PATH/openssl/$ABI/lib/pkgconfig"
@@ -118,7 +118,7 @@ compile() {
 	make clean
 	checkExitCode $?
 	# make
-	make -j$(sysctl -n hw.ncpu)
+	make -j$NCPU
 	checkExitCode $?
 	# install
 	make install
@@ -142,19 +142,33 @@ compile() {
 	# combine *.o to libcurl.a
 	safeMakeDir $BASE_PATH/libs/$ABI
 	cd $BASE_PATH
-	$AR -cr $BASE_PATH/libs/$ABI/libcurl.a $BASE_PATH/obj/$ABI/curl/*.o $BASE_PATH/obj/$ABI/openssl/*.o $BASE_PATH/obj/$ABI/zlib/*.o
+	rm -f $BASE_PATH/libs/$ABI/libcurl.a
+	find $BASE_PATH/obj/$ABI/curl $BASE_PATH/obj/$ABI/openssl $BASE_PATH/obj/$ABI/zlib -name "*.o" | xargs -n 200 $AR -cr $BASE_PATH/libs/$ABI/libcurl.a
 	checkExitCode $?
 	# copy dylib
 	cp -f $BUILD_PATH/curl/$ABI/lib/libcurl.so $BASE_PATH/libs/$ABI/libcurl.so
 	checkExitCode $?
 }
 
+# CPU count
+if command -v nproc >/dev/null 2>&1; then
+    NCPU=$(nproc)
+elif command -v sysctl >/dev/null 2>&1; then
+    NCPU=$(sysctl -n hw.ncpu)
+else
+    NCPU=4
+fi
+
 # check system
 host=$(uname | tr 'A-Z' 'a-z')
-if [ $host = "darwin" ] || [ $host = "linux" ]; then
+if [ "$host" = "darwin" ] || [ "$host" = "linux" ]; then
 	echo "system: $host"
+elif [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* ]]; then
+	host="windows"
+	echo "system: $host"
+	export NDK_ROOT=$(cygpath -u "$NDK_ROOT")
 else
-	echo "unsupport system, only support Mac OS X and Linux now."
+	echo "unsupported system, only support Mac OS X, Linux and Windows now."
 	exit 1
 fi
 

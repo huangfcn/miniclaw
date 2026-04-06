@@ -72,15 +72,15 @@ compile() {
 	export PATH=$TOOLCHAIN:$TOOLCHAIN_2:$PATH
 	safeMakeDir $BUILD_PATH/openssl/$ABI
 	checkExitCode $?
-	./Configure $ARCH --prefix=$BUILD_PATH/openssl/$ABI --openssldir=$BUILD_PATH/openssl/$ABI -D__ANDROID_API__=$API
+	./Configure $ARCH no-shared --prefix=$BUILD_PATH/openssl/$ABI --openssldir=$BUILD_PATH/openssl/$ABI -D__ANDROID_API__=$API
 	checkExitCode $?
 	# clean
 	make clean
 	checkExitCode $?
 	# make
-	make -j$(sysctl -n hw.ncpu) depend
+	make -j$NCPU depend
 	checkExitCode $?
-	make -j$(sysctl -n hw.ncpu) all
+	make -j$NCPU all
 	checkExitCode $?
 	# install
 	make install
@@ -88,12 +88,26 @@ compile() {
 	cd $BASE_PATH
 }
 
+# CPU count
+if command -v nproc >/dev/null 2>&1; then
+    NCPU=$(nproc)
+elif command -v sysctl >/dev/null 2>&1; then
+    NCPU=$(sysctl -n hw.ncpu)
+else
+    NCPU=4
+fi
+
 # check system
 host=$(uname | tr 'A-Z' 'a-z')
-if [ $host = "darwin" ] || [ $host = "linux" ]; then
+if [ "$host" = "darwin" ] || [ "$host" = "linux" ]; then
 	echo "system: $host"
+elif [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* ]]; then
+	host="windows"
+	echo "system: $host"
+	export NDK_ROOT=$(cygpath -u "$NDK_ROOT")
+	export ANDROID_NDK_ROOT=$(cygpath -u "$ANDROID_NDK_ROOT")
 else
-	echo "unsupport system, only support Mac OS X and Linux now."
+	echo "unsupported system, only support Mac OS X and Linux now."
 	exit 1
 fi
 

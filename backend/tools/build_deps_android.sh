@@ -3,6 +3,20 @@
 
 set -e
 
+# CPU count
+if command -v nproc >/dev/null 2>&1; then
+    NCPU=$(nproc)
+elif command -v sysctl >/dev/null 2>&1; then
+    NCPU=$(sysctl -n hw.ncpu)
+else
+    NCPU=4
+fi
+
+host=$(uname | tr 'A-Z' 'a-z')
+if [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* ]]; then
+    echo "system: windows"
+fi
+
 # Calculate directories
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -77,10 +91,10 @@ TOOLCHAIN_BIN="$NDK_ROOT/toolchains/llvm/prebuilt/$HOST_TAG/bin"
 
 echo "⚒️ Building OpenBLAS..."
 make clean
-make -j$(sysctl -n hw.ncpu) \
+make -j$NCPU \
     TARGET=ARMV8 \
     BINARY=64 \
-    HOSTCC=clang \
+    HOSTCC=gcc \
     NOFORTRAN=1 \
     NO_SHARED=1 \
     C_LAPACK=1 \

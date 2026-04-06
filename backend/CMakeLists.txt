@@ -74,34 +74,13 @@ set(EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
 set(THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
 # OpenBLAS (for Android)
 if(ANDROID)
-    # Force Android defines for OpenBLAS build
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DOS_ANDROID=1 -DOS_LINUX=1 -DNO_AFFINITY=1")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOS_ANDROID=1 -DOS_LINUX=1 -DNO_AFFINITY=1")
-
-    FetchContent_Declare(
-      openblas
-      GIT_REPOSITORY https://github.com/OpenMathLib/OpenBLAS.git
-      GIT_TAG        v0.3.27
+    set(OPENBLAS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third-party/openblas-android")
+    # Link to the precompiled OpenBLAS built by build_deps_android.sh
+    add_library(openblas STATIC IMPORTED)
+    set_target_properties(openblas PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENBLAS_ROOT}/include"
+        IMPORTED_LOCATION "${OPENBLAS_ROOT}/lib/libopenblas.a"
     )
-    set(OS_ANDROID 1 CACHE BOOL "" FORCE)
-    set(OS_LINUX 1 CACHE BOOL "" FORCE)
-    set(NO_SYSCTL 1 CACHE BOOL "" FORCE)
-    set(NO_AFFINITY 1 CACHE BOOL "" FORCE)
-    set(NOFORTRAN 1 CACHE BOOL "" FORCE)
-    set(ONLY_CBLAS 1 CACHE BOOL "" FORCE)
-    set(NO_LAPACK 1 CACHE BOOL "" FORCE)
-    set(BUILD_WITHOUT_LAPACK 1 CACHE BOOL "" FORCE)
-    set(C_LAPACK OFF CACHE BOOL "" FORCE)
-    set(BUILD_SINGLE ON CACHE BOOL "" FORCE)
-    set(BUILD_DOUBLE ON CACHE BOOL "" FORCE)
-    set(BUILD_COMPLEX ON CACHE BOOL "" FORCE)
-    set(BUILD_COMPLEX16 ON CACHE BOOL "" FORCE)
-    set(BUILD_LAPACK_DEPRECATED ON CACHE BOOL "" FORCE)
-    # Match Android ABI
-    if(ANDROID_ABI STREQUAL "arm64-v8a")
-        set(TARGET ARMV8 CACHE STRING "" FORCE)
-    endif()
-    FetchContent_MakeAvailable(openblas)
     set(BLAS_LIBRARIES openblas CACHE STRING "" FORCE)
     set(LAPACK_LIBRARIES openblas CACHE STRING "" FORCE)
 endif()
@@ -165,7 +144,11 @@ if(NOT ANDROID)
     endif()
 endif()
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
+if(WIN32)
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include-win64)
+else()
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
+endif()
 
 # Platform-specific fiber library
 set(FIBER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber")
@@ -329,29 +312,20 @@ else()
     endif()
 endif()
 
-add_executable(test_fiber tests/test_fiber.cpp)
+if(NOT WIN32)
+    add_executable(test_fiber tests/test_fiber.cpp)
     target_include_directories(test_fiber PRIVATE 
-    src
-    ${libuv_SOURCE_DIR}/include
-    ${THIRDPARTY_DIR}/croncpp
-)
-target_link_libraries(test_fiber PRIVATE 
-    ${PTHREAD_LIB}
-    CURL::libcurl
-    simdjson
-    uv_a
-    ${FIBER_LIBS}
-)
-
-if(WIN32)
-    target_link_libraries(test_fiber PRIVATE 
-        ws2_32
-        iphlpapi
-        userenv
-        dbghelp
-        gomp
+        src
+        ${libuv_SOURCE_DIR}/include
+        ${THIRDPARTY_DIR}/croncpp
     )
-    target_link_libraries(test_fiber PRIVATE ${Boost_LIBRARIES})
+    target_link_libraries(test_fiber PRIVATE 
+        ${PTHREAD_LIB}
+        CURL::libcurl
+        simdjson
+        uv_a
+        ${FIBER_LIBS}
+    )
 endif()
 
 add_executable(test_agent_loop tests/test_agent_loop.cpp src/agent/memory_index.cpp)
