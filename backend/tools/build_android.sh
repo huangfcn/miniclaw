@@ -60,6 +60,6 @@ else
     NCPU=4
 fi
 
-cmake --build . --target miniclaw --parallel $NCPU
+cmake --build . --parallel $NCPU
 
-echo "✅ Android build complete! Output at $BUILD_DIR/miniclaw"
+echo "✅ Android build complete! Output in $BUILD_DIR"

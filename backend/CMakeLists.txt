@@ -375,7 +375,11 @@ else()
         OpenMP::OpenMP_CXX
         ${BLAS_LAPACK_LIBS}
     )
-    target_link_libraries(test_agent_loop PRIVATE ${Boost_LIBRARIES})
+    if(ANDROID)
+        target_sources(test_agent_loop PRIVATE src/agent/lapack_android_stub.c)
+    else()
+        target_link_libraries(test_agent_loop PRIVATE ${Boost_LIBRARIES})
+    endif()
 endif()
 
 add_executable(test_memory_index tests/test_memory_index.cpp src/agent/memory_index.cpp)
@@ -422,7 +426,13 @@ else()
         OpenMP::OpenMP_CXX
         ${BLAS_LAPACK_LIBS}
     )
-    target_link_libraries(test_memory_index PRIVATE ${Boost_LIBRARIES})
+    if(NOT ANDROID)
+        target_link_libraries(test_memory_index PRIVATE ${Boost_LIBRARIES})
+    endif()
+endif()
+
+if(ANDROID)
+    target_sources(test_memory_index PRIVATE src/agent/lapack_android_stub.c)
 endif()
 
 add_executable(test_distillation tests/test_distillation.cpp src/agent/memory_index.cpp)
@@ -470,7 +480,13 @@ else()
         OpenMP::OpenMP_CXX
         ${BLAS_LAPACK_LIBS}
     )
-    target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
+    if(NOT ANDROID)
+        target_link_libraries(test_distillation PRIVATE ${Boost_LIBRARIES})
+    endif()
+endif()
+
+if(ANDROID)
+    target_sources(test_distillation PRIVATE src/agent/lapack_android_stub.c)
 endif()
 
 add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp)
@@ -492,7 +508,6 @@ target_link_libraries(test_distillation_real PRIVATE
     OpenSSL::Crypto
     CURL::libcurl
     ZLIB::ZLIB
-    z
     ${PTHREAD_LIB}
     yaml-cpp
     simdjson
@@ -525,7 +540,13 @@ else()
         OpenMP::OpenMP_CXX
         ${BLAS_LAPACK_LIBS}
     )
-    target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
+    if(NOT ANDROID)
+        target_link_libraries(test_distillation_real PRIVATE ${Boost_LIBRARIES})
+    endif()
+endif()
+
+if(ANDROID)
+    target_sources(test_distillation_real PRIVATE src/agent/lapack_android_stub.c)
 endif()
 
 add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp)
@@ -547,7 +568,6 @@ target_link_libraries(test_gmail PRIVATE
     OpenSSL::Crypto
     CURL::libcurl
     ZLIB::ZLIB
-    z
     ${PTHREAD_LIB}
     yaml-cpp
     simdjson
@@ -580,19 +600,25 @@ else()
         OpenMP::OpenMP_CXX
         ${BLAS_LAPACK_LIBS}
     )
-    target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
+    if(NOT ANDROID)
+        target_link_libraries(test_gmail PRIVATE ${Boost_LIBRARIES})
+    endif()
+endif()
+
+if(ANDROID)
+    target_sources(test_gmail PRIVATE src/agent/lapack_android_stub.c)
 endif()
 
 
-add_executable(test_busybox tests/test_busybox.cpp)
-target_include_directories(test_busybox PRIVATE 
-    src 
-    ${EXTERNAL_DIR}/spdlog/include
-    ${yaml-cpp_SOURCE_DIR}/include
-    ${simdjson_SOURCE_DIR}/include
-)
-target_link_libraries(test_busybox PRIVATE ${PTHREAD_LIB} yaml-cpp simdjson)
 if(WIN32)
+    add_executable(test_busybox tests/test_busybox.cpp)
+    target_include_directories(test_busybox PRIVATE 
+        src 
+        ${EXTERNAL_DIR}/spdlog/include
+        ${yaml-cpp_SOURCE_DIR}/include
+        ${simdjson_SOURCE_DIR}/include
+    )
+    target_link_libraries(test_busybox PRIVATE ${PTHREAD_LIB} yaml-cpp simdjson)
     target_link_libraries(test_busybox PRIVATE ws2_32 iphlpapi userenv dbghelp)
     target_link_libraries(test_busybox PRIVATE ${Boost_LIBRARIES})
 endif()

@@ -18,6 +18,9 @@ third-party/faiss/
 third-party/LucenePlusPlus/
 third-party/LucenePlusPlus/*
 
+# libuv
+third-party/libuv/
+
 # fiber
 third-party/fiber/*.o
 third-party/fiber/lib/
