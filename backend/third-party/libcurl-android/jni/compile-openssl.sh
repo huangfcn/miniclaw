@@ -1,0 +1,136 @@
+#!/bin/bash
+# Compile curl & openssl & zlib for android with NDK.
+# Copyright (C) 2018  shishuo <shishuo365@126.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+APP_ABI=(arm64-v8a)
+
+BASE_PATH=$(
+	cd "$(dirname $0)"
+	pwd
+)
+SSL_PATH="$BASE_PATH/openssl"
+BUILD_PATH="$BASE_PATH/build"
+
+checkExitCode() {
+	if [ $1 -ne 0 ]; then
+		echo "Error building openssl library"
+		cd $BASE_PATH
+		exit $1
+	fi
+}
+safeMakeDir() {
+	if [ ! -x "$1" ]; then
+		mkdir -p "$1"
+	fi
+}
+
+## Android NDK
+if [ -z "$NDK_ROOT" ]; then
+	if [ -n "$ANDROID_NDK_HOME" ]; then
+		export NDK_ROOT="$ANDROID_NDK_HOME"
+	elif [ -n "$NDK_HOME" ]; then
+		export NDK_ROOT="$NDK_HOME"
+	fi
+fi
+
+if [ -z "$NDK_ROOT" ]; then
+	echo "Please set your NDK_ROOT, ANDROID_NDK_HOME, or NDK_HOME environment variable first"
+	exit 1
+fi
+export ANDROID_NDK_ROOT="$NDK_ROOT"
+
+## Clean build directory
+rm -rf $BUILD_PATH/openssl
+safeMakeDir $BUILD_PATH/openssl
+
+## Build OpenSSL
+
+# compile $1 ABI $2 SYSROOT $3 TOOLCHAIN $4 MACHINE $5 SYSTEM $6 ARCH $7 CROSS_COMPILE
+# http://wiki.openssl.org/index.php/Android
+# http://doc.qt.io/qt-5/opensslsupport.html
+compile() {
+	cd $SSL_PATH
+	ABI=$1
+	ARCH=$2
+	TOOLCHAIN=$3
+	TOOLCHAIN_2=$4
+	# https://android.googlesource.com/platform/ndk/+/ics-mr0/docs/STANDALONE-TOOLCHAIN.html
+	export API=21
+	export PATH=$TOOLCHAIN:$TOOLCHAIN_2:$PATH
+	safeMakeDir $BUILD_PATH/openssl/$ABI
+	checkExitCode $?
+	./Configure $ARCH no-shared --prefix=$BUILD_PATH/openssl/$ABI --openssldir=$BUILD_PATH/openssl/$ABI -D__ANDROID_API__=$API
+	checkExitCode $?
+	# clean
+	make clean
+	checkExitCode $?
+	# make
+	make -j$NCPU depend
+	checkExitCode $?
+	make -j$NCPU all
+	checkExitCode $?
+	# install
+	make install
+	checkExitCode $?
+	cd $BASE_PATH
+}
+
+# CPU count
+if command -v nproc >/dev/null 2>&1; then
+    NCPU=$(nproc)
+elif command -v sysctl >/dev/null 2>&1; then
+    NCPU=$(sysctl -n hw.ncpu)
+else
+    NCPU=4
+fi
+
+# check system
+host=$(uname | tr 'A-Z' 'a-z')
+if [ "$host" = "darwin" ] || [ "$host" = "linux" ]; then
+	echo "system: $host"
+elif [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* ]]; then
+	host="windows"
+	echo "system: $host"
+	export NDK_ROOT=$(cygpath -u "$NDK_ROOT")
+	export ANDROID_NDK_ROOT=$(cygpath -u "$ANDROID_NDK_ROOT")
+else
+	echo "unsupported system, only support Mac OS X and Linux now."
+	exit 1
+fi
+
+for abi in ${APP_ABI[*]}; do
+	case $abi in
+	armeabi-v7a)
+		compile $abi "android-arm" "$NDK_ROOT/toolchains/llvm/prebuilt/$host-x86_64/bin" "$NDK_ROOT/toolchains/arm-linux-androideabi-4.9/prebuilt/$host-x86_64/bin"
+		;;
+	x86)
+		compile $abi "android-x86" "$NDK_ROOT/toolchains/llvm/prebuilt/$host-x86_64/bin" "$NDK_ROOT/toolchains/x86-4.9/prebuilt/$host-x86_64/bin"
+		;;
+	arm64-v8a)
+		compile $abi "android-arm64" "$NDK_ROOT/toolchains/llvm/prebuilt/$host-x86_64/bin" ""
+		;;
+	x86-64)
+		compile $abi "android-x86_64" "$NDK_ROOT/toolchains/llvm/prebuilt/$host-x86_64/bin" "$NDK_ROOT/toolchains/x86_64-4.9/prebuilt/$host-x86_64/bin"
+		;;
+	*)
+		echo "Error APP_ABI"
+		exit 1
+		;;
+	esac
+done
+
+cd $BASE_PATH
+exit 0

@@ -1,1 +1,41 @@
 build_output.txt
+
+# Android build output
+build-android/
+
+# libcurl-android
+third-party/libcurl-android/jni/openssl/
+third-party/libcurl-android/jni/curl/
+third-party/libcurl-android/jni/zlib/
+third-party/libcurl-android/jni/build/
+third-party/libcurl-android/libs/
+third-party/libcurl-android/obj/
+
+# faiss
+third-party/faiss/
+
+# lucene
+third-party/LucenePlusPlus/
+third-party/LucenePlusPlus/*
+
+# libuv
+third-party/libuv/
+
+# fiber
+third-party/fiber/*.o
+third-party/fiber/lib/
+
+# busybox
+third-party/busybox-w32/
+
+# openblas-android
+third-party/openblas-android/
+
+# backend 
+backend.log
+external/
+build
+dist/
+
+# test output
+*test*.txt
