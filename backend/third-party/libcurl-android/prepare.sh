@@ -26,7 +26,19 @@ elif [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* 
     echo "==> Windows MSYS2 detected, installing prerequisites via pacman..."
     pacman -S --needed --noconfirm autoconf automake libtool m4 pkg-config
 else
-    echo "==> Linux detected, ensure autoconf, automake, libtool, m4, pkg-config are installed."
+    echo "==> Linux detected, checking prerequisites..."
+    needed_tools=("autoconf" "automake" "libtool" "m4" "pkg-config")
+    missing_tools=()
+    for tool in "${needed_tools[@]}"; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            missing_tools+=("$tool")
+        fi
+    done
+
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        echo "WARNING: The following tools are missing: ${missing_tools[*]}"
+        echo "Suggestion: sudo apt-get update && sudo apt-get install -y ${missing_tools[*]}"
+    fi
 fi
 
 # ------------------------------------------------------
