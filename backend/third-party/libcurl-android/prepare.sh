@@ -27,7 +27,7 @@ elif [[ "$host" == mingw* ]] || [[ "$host" == msys* ]] || [[ "$host" == cygwin* 
     pacman -S --needed --noconfirm autoconf automake libtool m4 pkg-config
 else
     echo "==> Linux detected, checking prerequisites..."
-    needed_tools=("autoconf" "automake" "libtool" "m4" "pkg-config")
+    needed_tools=("autoreconf" "autoconf" "automake" "libtool" "m4" "pkg-config")
     missing_tools=()
     for tool in "${needed_tools[@]}"; do
         if ! command -v "$tool" >/dev/null 2>&1; then
