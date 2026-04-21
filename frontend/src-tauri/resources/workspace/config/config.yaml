@@ -35,3 +35,7 @@ logging:
 
 skills:
   path: "skills"
+
+bridges:
+  server_bridge:
+    url: "ws://localhost:9000/api/chat/stream"

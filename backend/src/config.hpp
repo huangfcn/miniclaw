@@ -249,6 +249,14 @@ public:
     return p;
   }
 
+  // Bridges
+  YAML::Node bridges() const {
+    if (config_["bridges"]) {
+      return config_["bridges"];
+    }
+    return YAML::Node(YAML::NodeType::Map);
+  }
+
   // Prompts
   std::string load_prompt(const std::string &name,
                           const std::string &default_prompt) const {

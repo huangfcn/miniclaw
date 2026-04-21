@@ -214,8 +214,9 @@ public:
         if (iteration >= max_iterations_ && !final_answer_reached) {
             on_event({"error", "Max iterations reached"});
         }
-
-        // --- DISTILLATION LOGIC (Moved outside the loop to ensure it always runs) ---
+        on_event({"done", ""});
+        
+        // --- DISTILLATION LOGIC (Moved after done to avoid blocking UI) ---
         
         std::string today = current_date();
         std::string yesterday = yesterday_date();
@@ -263,8 +264,6 @@ public:
                 session.last_consolidation_date = today;
             }
         }
-
-        on_event({"done", ""});
     }
 
     bool distill_l1_to_l2(Session& session, int start, int end, DistillationEvent event = DistillationEvent::PERIODIC) {

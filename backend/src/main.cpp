@@ -1,6 +1,7 @@
 #include "agent.hpp"
 #include "agent/fiber_pool.hpp"
 #include "agent/cron_service.hpp"
+#include "agent/chat_gateway.hpp"
 
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -116,7 +117,7 @@ int main() {
   spdlog::set_level(log_level);
   spdlog::flush_on(spdlog::level::debug);
 
-  spdlog::info("Starting miniclaw Backend (C++) with uWebSockets");
+  spdlog::info("Starting miniclaw Backend (C++) - Pure Client Agent Mode");
   spdlog::info("Config file: {}", Config::instance().config_file_path());
   spdlog::info("Memory workspace: {}", Config::instance().memory_workspace());
   spdlog::info("Skills path: {}", Config::instance().skills_path());
@@ -176,8 +177,13 @@ int main() {
   CronService::instance().init(Config::instance().memory_workspace());
   CronService::instance().start();
 
-  int port = Config::instance().server_port();
-  spdlog::info("Backend running on port {} (Non-blocking Fiber Nodes)", port);
+  // Initialize and start ChatGateway (Bridge connections) on a Fiber node
+  FiberPool::instance().spawn([&global_agent]() {
+      ChatGateway::instance().init(&global_agent);
+      ChatGateway::instance().start();
+  });
+
+  spdlog::info("Agent Core running (standardized bridge protocol enabled)");
 
   // Register signal handler for Ctrl-C
 #if defined(_WIN32)
@@ -194,6 +200,7 @@ int main() {
   miniclaw_wait_for_shutdown();
 
   spdlog::info("Initiating graceful shutdown...");
+  ChatGateway::instance().stop(); // Stop ChatGateway
   FiberPool::instance().stop(); // Stop the FiberPool
   CronService::instance().stop(); // Stop the CronService
   curl_global_cleanup(); // Cleanup libcurl

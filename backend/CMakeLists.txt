@@ -242,6 +242,8 @@ add_executable(miniclaw
     src/agent/memory_index.cpp
     src/agent/shutdown.cpp
     src/agent/cron_service.cpp
+    src/agent/ws_client.cpp
+    src/agent/chat_gateway.cpp
 )
 
 if(ANDROID)
@@ -621,6 +623,29 @@ if(WIN32)
     target_link_libraries(test_busybox PRIVATE ${PTHREAD_LIB} yaml-cpp simdjson)
     target_link_libraries(test_busybox PRIVATE ws2_32 iphlpapi userenv dbghelp)
     target_link_libraries(test_busybox PRIVATE ${Boost_LIBRARIES})
+endif()
+
+# Server Bridge for Legacy Compatibility
+add_executable(server_bridge src/server_bridge.cpp)
+target_include_directories(server_bridge PRIVATE 
+    src
+    ${EXTERNAL_DIR}/spdlog/include
+    ${uwebsockets_SOURCE_DIR}/src
+    ${usockets_SOURCE_DIR}/src
+    ${simdjson_SOURCE_DIR}/include
+    ${simdjson_SOURCE_DIR}/src
+)
+target_link_libraries(server_bridge PRIVATE 
+    uSockets 
+    uv_a 
+    simdjson 
+    OpenSSL::SSL 
+    OpenSSL::Crypto
+    CURL::libcurl
+    ZLIB::ZLIB
+)
+if(WIN32)
+    target_link_libraries(server_bridge PRIVATE ws2_32 iphlpapi userenv dbghelp)
 endif()
 
 
