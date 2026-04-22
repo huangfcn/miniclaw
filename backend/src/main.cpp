@@ -178,7 +178,7 @@ int main() {
   CronService::instance().start();
 
   // Initialize and start ChatGateway (Bridge connections) on a Fiber node
-  FiberPool::instance().spawn([&global_agent]() {
+  FiberPool::instance().spawn([]() {
       ChatGateway::instance().init(&global_agent);
       ChatGateway::instance().start();
   });
