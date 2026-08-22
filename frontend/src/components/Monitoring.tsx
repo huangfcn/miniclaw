@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Play, Square, Activity, Shield, Cpu, Zap, Globe, Folder, FileCode, CheckCircle2, Box } from "lucide-react";
+import { Play, Square, Activity, Shield, Cpu, Zap, Globe, Folder, FileCode, CheckCircle2, Box, Smartphone, Server } from "lucide-react";
 import { useAppContext } from "../contexts/AppContext";
+import { isMobile } from "../lib/agentApi";
 
 interface MonitoringProps {
   isBackendRunning: boolean;
@@ -93,6 +94,49 @@ const Monitoring = ({ isBackendRunning, onStatusChange }: MonitoringProps) => {
     { icon: Zap, label: "System Uptime", value: isBackendRunning ? engineInfo.uptime : "00:00:00", color: "text-amber-500" },
     { icon: Globe, label: "Endpoint Status", value: isBackendRunning ? "Online" : "Offline", color: "text-emerald-500" },
   ];
+
+  // ── Mobile: compact embedded-engine status (no sidecar controls) ────────
+  if (isMobile) {
+    return (
+      <div className="flex-1 p-4 bg-[#0b0b0b] space-y-4 overflow-y-auto">
+        <h2 className="text-xl font-bold text-white px-1">Engine Status</h2>
+
+        <div className={`p-5 rounded-2xl border space-y-3 ${
+          isBackendRunning ? "bg-emerald-500/5 border-emerald-500/20" : "bg-rose-500/5 border-rose-500/20"
+        }`}>
+          <div className="flex items-center space-x-3">
+            <Server size={20} className={isBackendRunning ? "text-emerald-400" : "text-rose-400"} />
+            <span className={`font-bold ${isBackendRunning ? "text-emerald-300" : "text-rose-300"}`}>
+              {isBackendRunning ? "Engine running" : "Engine starting…"}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 leading-relaxed">
+            On mobile the engine runs inside the app (no separate process).
+            It starts automatically when the app launches.
+          </p>
+        </div>
+
+        <div className="p-5 rounded-2xl border border-gray-800 bg-[#141414] space-y-3">
+          <div className="flex items-center space-x-3 text-xs font-bold uppercase tracking-widest text-gray-500">
+            <Smartphone size={14} />
+            <span>Privacy</span>
+          </div>
+          <p className="text-xs text-gray-400 leading-relaxed">
+            Background tasks (summarization, embeddings, memory distillation)
+            can run on private local models pointed at in-app endpoints via
+            Settings → config.yaml. Conversation quality uses your configured
+            remote API.
+          </p>
+        </div>
+
+        {error && (
+          <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm">
+            {error}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 p-10 bg-[#0b0b0b] space-y-10 max-w-6xl mx-auto w-full overflow-y-auto">

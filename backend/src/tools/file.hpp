@@ -1,5 +1,7 @@
 #pragma once
 #include "tool.hpp"
+#include "mobile_sandbox.hpp"
+#include "../config.hpp"
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -7,6 +9,9 @@
 #include <map>
 
 namespace fs = std::filesystem;
+
+// On mobile builds, all file tool paths are confined to the workspace.
+inline std::string kMobileWs() { return Config::instance().memory_workspace(); }
 
 class ReadFileTool : public Tool {
 public:
@@ -24,6 +29,7 @@ public:
     }
 
     std::string execute(const std::string& input) override {
+        MC_MOBILE_PATH_CHECK(err, input, kMobileWs());
         if (!fs::exists(input)) return "Error: File not found: " + input;
         std::ifstream f(input);
         if (!f.is_open()) return "Error: Cannot open file: " + input;
@@ -48,6 +54,7 @@ public:
         if (path_it == args.end()) return "Error: missing 'path' argument";
         if (content_it == args.end()) return "Error: missing 'content' argument";
 
+        MC_MOBILE_PATH_CHECK(err, path_it->second, kMobileWs());
         fs::path path(path_it->second);
         if (path.has_parent_path()) fs::create_directories(path.parent_path());
         std::ofstream f(path_it->second);
@@ -62,6 +69,7 @@ public:
         if (newline_pos == std::string::npos)
             return "Error: Invalid input format. Expected path\\ncontent";
         std::string path_str = input.substr(0, newline_pos);
+        MC_MOBILE_PATH_CHECK(err, path_str, kMobileWs());
         std::string content = input.substr(newline_pos + 1);
         std::map<std::string, std::string> args = {{"path", path_str}, {"content", content}};
         return execute(args);
@@ -85,6 +93,7 @@ public:
         if (old_it  == args.end()) return "Error: missing 'old_text'";
         if (new_it  == args.end()) return "Error: missing 'new_text'";
 
+        MC_MOBILE_PATH_CHECK(err, path_it->second, kMobileWs());
         if (!fs::exists(path_it->second)) return "Error: File not found: " + path_it->second;
         std::ifstream fin(path_it->second);
         std::stringstream buf;
@@ -121,6 +130,7 @@ public:
     }
 
     std::string execute(const std::string& input) override {
+        MC_MOBILE_PATH_CHECK(err, input, kMobileWs());
         if (!fs::exists(input)) return "Error: Path not found: " + input;
         std::string result;
         for (const auto& entry : fs::directory_iterator(input)) {

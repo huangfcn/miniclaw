@@ -370,6 +370,10 @@ void FiberNode::thread_func() {
         });
     });
 
+#ifndef MC_MOBILE
+    // Mobile drives the engine in-process via the C ABI (agent_api.h); no
+    // local HTTP server is needed (and binding a port per fiber node would
+    // just fail after the first one).
     uws_app->listen(9000, LIBUS_LISTEN_DEFAULT, [this](auto *listen_socket) {
         if (listen_socket) {
             spdlog::info("FiberNode listening on port 9000");
@@ -378,6 +382,7 @@ void FiberNode::thread_func() {
             spdlog::error("FiberNode failed to listen on port 9000");
         }
     });
+#endif
 
 #ifdef _WIN32
     boost::fibers::fiber([this]() {

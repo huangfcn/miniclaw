@@ -60,6 +60,15 @@ else
     NCPU=4
 fi
 
-cmake --build . --parallel $NCPU
+cmake --build . --target miniclaw_core --target miniclaw --parallel $NCPU
 
 echo "✅ Android build complete! Output in $BUILD_DIR"
+
+# Convenience: drop the shared lib into the Tauri Android project so it is
+# merged into the APK automatically. (Skip if the project isn't initialized.)
+JNILIBS="$BACKEND_DIR/../frontend/src-tauri/android/app/src/main/jniLibs/$ABI"
+if [ -d "$BACKEND_DIR/../frontend/src-tauri/android" ]; then
+    mkdir -p "$JNILIBS"
+    cp "$BUILD_DIR/libminiclaw_core.so" "$JNILIBS/"
+    echo "📦 Copied libminiclaw_core.so -> $JNILIBS"
+fi

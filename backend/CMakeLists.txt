@@ -104,6 +104,11 @@ if(USE_SQLITE)
     add_compile_definitions(USE_SQLITE)
 endif()
 
+# Force the mobile code paths (sandboxed shell + file sandbox) on a desktop
+# build, for testing without an Android/iOS device:
+#   cmake -B build-mobile -DFORCE_MOBILE=ON && cmake --build build-mobile
+option(FORCE_MOBILE "Build with MC_MOBILE even on desktop (testing)" OFF)
+
 if(USE_SQLITE)
     # Fetch SQLite amalgamation
     FetchContent_Declare(
@@ -235,8 +240,9 @@ target_link_libraries(uSockets PRIVATE uv_a)
 
 set_target_properties(uSockets PROPERTIES LINKER_LANGUAGE C)
 
-add_executable(miniclaw 
-    src/main.cpp 
+# ── Core sources (shared between the desktop executable and the embeddable
+#    library used by Tauri on mobile) ────────────────────────────────────────
+set(MINICLAW_CORE_SOURCES
     src/agent.cpp
     src/agent/fiber_pool.cpp
     src/agent/memory_index.cpp
@@ -245,41 +251,98 @@ add_executable(miniclaw
 )
 
 if(ANDROID)
-    target_sources(miniclaw PRIVATE src/agent/lapack_android_stub.c)
+    list(APPEND MINICLAW_CORE_SOURCES src/agent/lapack_android_stub.c)
 endif()
 
-target_include_directories(miniclaw PRIVATE 
-    src
-    ${EXTERNAL_DIR}/spdlog/include
-    ${libuv_SOURCE_DIR}/include
-    ${uwebsockets_SOURCE_DIR}/src
-    ${usockets_SOURCE_DIR}/src
-    ${yaml-cpp_SOURCE_DIR}/include
-    ${simdjson_SOURCE_DIR}/include
-    ${simdjson_SOURCE_DIR}/src
-    ${THIRDPARTY_DIR}/croncpp
-)
+# Helper: apply the same include dirs / definitions / link libraries to a
+# target as the desktop `miniclaw` executable gets.
+function(miniclaw_apply_core_target tgt)
+    target_include_directories(${tgt} PRIVATE 
+        src
+        ${EXTERNAL_DIR}/spdlog/include
+        ${libuv_SOURCE_DIR}/include
+        ${uwebsockets_SOURCE_DIR}/src
+        ${usockets_SOURCE_DIR}/src
+        ${yaml-cpp_SOURCE_DIR}/include
+        ${simdjson_SOURCE_DIR}/include
+        ${simdjson_SOURCE_DIR}/src
+        ${THIRDPARTY_DIR}/croncpp
+    )
+    # Definitions for libfib / uWS
+    target_compile_definitions(${tgt} PRIVATE 
+        __1_N_MODEL__
+    )
+    target_include_directories(${tgt} PRIVATE ${SEARCH_INCLUDES})
+    target_link_libraries(${tgt} PRIVATE 
+        uSockets
+        OpenSSL::SSL 
+        OpenSSL::Crypto
+        CURL::libcurl
+        ZLIB::ZLIB
+        uv_a
+        ${FIBER_LIBS}
+        faiss
+        yaml-cpp
+        simdjson
+    )
+    # Platform-specific search/BLAS libs (mirror of the miniclaw blocks below)
+    if(APPLE)
+        target_link_libraries(${tgt} PRIVATE 
+            ${SEARCH_LIBS}
+            "-framework Accelerate"
+            "/opt/homebrew/opt/libomp/lib/libomp.dylib"
+        )
+        target_link_libraries(${tgt} PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+    elseif(WIN32)
+        target_link_libraries(${tgt} PRIVATE 
+            ${SEARCH_LIBS}
+            openblas
+            ws2_32
+            iphlpapi
+            userenv
+            dbghelp
+            gomp
+        )
+        target_link_libraries(${tgt} PRIVATE ${Boost_LIBRARIES})
+    else()
+        target_link_libraries(${tgt} PRIVATE 
+            ${SEARCH_LIBS}
+            OpenMP::OpenMP_CXX
+        )
+        target_link_libraries(${tgt} PRIVATE ${BLAS_LAPACK_LIBS})
+        if(NOT ANDROID)
+            target_link_libraries(${tgt} PRIVATE ${Boost_LIBRARIES})
+        endif()
+    endif()
+endfunction()
 
-# Definitions for libfib / uWS
-target_compile_definitions(miniclaw PRIVATE 
-    __1_N_MODEL__
-)
+# ── Embeddable shared library (Tauri mobile links this) ────────────────────
+add_library(miniclaw_core SHARED ${MINICLAW_CORE_SOURCES} src/mobile/agent_api.cpp)
+set_target_properties(miniclaw_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(ANDROID OR IOS OR (FORCE_MOBILE AND NOT ANDROID AND NOT IOS))
+    # Mobile builds: no raw shell, file tools sandboxed to the workspace.
+    target_compile_definitions(miniclaw_core PRIVATE MC_MOBILE)
+endif()
 
-target_include_directories(miniclaw PRIVATE ${SEARCH_INCLUDES})
+miniclaw_apply_core_target(miniclaw_core)
 
-target_link_libraries(miniclaw PRIVATE 
-    uSockets
-    OpenSSL::SSL 
-    OpenSSL::Crypto
-    CURL::libcurl
-    ZLIB::ZLIB
-    uv_a
-    ${FIBER_LIBS}
-    faiss
-    yaml-cpp
-    simdjson
-)
+add_executable(miniclaw src/main.cpp ${MINICLAW_CORE_SOURCES})
+if(ANDROID OR IOS OR (FORCE_MOBILE AND NOT ANDROID AND NOT IOS))
+    target_compile_definitions(miniclaw PRIVATE MC_MOBILE)
+endif()
+miniclaw_apply_core_target(miniclaw)
+
+# Desktop end-to-end test for the mobile C ABI (see MOBILE.md).
+# Build with: cmake -B build -DFORCE_MOBILE=ON -DMC_E2E_TEST=ON
+option(MC_E2E_TEST "Build the mobile C-ABI end-to-end test driver" OFF)
+if(MC_E2E_TEST AND NOT ANDROID AND NOT IOS)
+    add_executable(mc_e2e test/mobile_e2e_test.cpp ${MINICLAW_CORE_SOURCES}
+                     src/mobile/agent_api.cpp)
+    # Always mobile mode: this driver exists to test the phone code path.
+    target_compile_definitions(mc_e2e PRIVATE MC_MOBILE)
+    miniclaw_apply_core_target(mc_e2e)
+endif()
 
 # (Search libs included in platform blocks)
 

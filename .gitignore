@@ -1,6 +1,7 @@
 # vscode
 .vscode/
 
+.idea/*
 
 # backend.rs
 backend.rs/target/

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { loadConfig as apiLoadConfig, saveConfig as apiSaveConfig } from "../lib/agentApi";
 import { Save, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useAppContext } from "../contexts/AppContext";
 
@@ -10,7 +10,7 @@ const Settings = () => {
   const loadConfig = async () => {
     setAppState(prev => ({ ...prev, settings: { ...prev.settings, isLoading: true, error: null } }));
     try {
-      const data = await invoke("read_config");
+      const data = await apiLoadConfig();
       setAppState(prev => ({ ...prev, settings: { ...prev.settings, config: data as string } }));
     } catch (err) {
       console.error(err);
@@ -23,7 +23,7 @@ const Settings = () => {
   const handleSave = async () => {
     setAppState(prev => ({ ...prev, settings: { ...prev.settings, saveStatus: "saving" } }));
     try {
-      await invoke("save_config", { content: config });
+      await apiSaveConfig(config);
       setAppState(prev => ({ ...prev, settings: { ...prev.settings, saveStatus: "saved" } }));
       setTimeout(() => setAppState(prev => ({ ...prev, settings: { ...prev.settings, saveStatus: "idle" } })), 2000);
     } catch (err) {

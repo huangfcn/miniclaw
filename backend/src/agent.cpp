@@ -23,6 +23,7 @@
 #include "tools/gmail.hpp"
 #include "tools/spawn.hpp"
 #include "tools/terminal.hpp"
+#include "tools/mobile_shell.hpp"
 #include "tools/web.hpp"
 #include "tools/cron.hpp"
 
@@ -79,7 +80,14 @@ Agent::Agent() {
   subagents_ = std::make_unique<SubagentManager>(workspace_, llm_fn, embed_fn);
 
   // Register built-in tools
+#ifdef MC_MOBILE
+  // No shell on mobile (Android forbids fork() in app processes): exec is
+  // provided by pure-C++ command implementations sandboxed to the workspace.
+  loop_->register_tool("exec", std::make_shared<MobileShellTool>());
+#else
+  // Desktop: raw shell access via BusyBox (Windows) / popen (POSIX).
   loop_->register_tool("exec", std::make_shared<TerminalTool>());
+#endif
   loop_->register_tool("read_file", std::make_shared<ReadFileTool>());
   loop_->register_tool("write_file", std::make_shared<WriteFileTool>());
   loop_->register_tool("edit_file", std::make_shared<EditFileTool>());
