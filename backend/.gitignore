@@ -1,6 +1,7 @@
 build_output.txt
 
 # Android build output
+build/
 build-android/
 
 # libcurl-android

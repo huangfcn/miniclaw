@@ -37,6 +37,43 @@ The C++ core is **unchanged** except for:
   is set.
 - `backend/CMakeLists.txt` — new `miniclaw_core` shared library target.
 
+### Native Android app (no webview)
+
+Besides the Tauri/webview path above, the repo contains a **native Android app**
+in `android/` — plain Kotlin + framework widgets, no webview, zero external
+dependencies. It talks to the same C++ engine through a JNI bridge:
+
+```
+┌─────────────────────────────── Phone ───────────────────────────────┐
+│  Kotlin UI (android/app: Activity + ListView chat)                  │
+│        │  EngineClient (marshals events to the main thread)         │
+│  com.miniclaw.core.NativeEngine (Java, JNI facade)                  │
+│        │  JNI (libminiclaw_jni.so — attaches worker threads to JVM) │
+│  libminiclaw_core.so  ← same C ABI (agent_api.h) as the Tauri path  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- `backend/src/mobile/jni_bridge.cpp` → `libminiclaw_jni.so`: implements the
+  nine `Java_com_miniclaw_core_NativeEngine_*` methods over the C ABI.
+  Engine callbacks arrive on internal worker threads; the bridge attaches
+  them to the JVM and holds a global ref to the Java listener. The listener
+  is freed by an engine-internal cleanup hook that runs after the turn
+  completes (never inside the callback — the loop can emit `done` after
+  `error`).
+- `android/app/src/main/java/com/miniclaw/core/NativeEngine.java` — JNI
+  facade (`create`/`destroy`/`sendMessage`/`setString`/… + `EventListener`).
+- `android/app/src/main/java/com/miniclaw/app/EngineClient.kt` — hops events
+  from the JNI thread to the UI thread via a `Handler`.
+- `android/app/src/main/java/com/miniclaw/app/MainActivity.kt` — chat UI:
+  streaming agent bubble, tool start/end activity lines (collapsed to the
+  first line, like the webview), status bar, settings dialog
+  (endpoint/model/api-key persisted in SharedPreferences).
+
+Build: `backend/tools/build_android.sh` produces **both** `.so` files and
+copies them into `android/app/src/main/jniLibs/arm64-v8a/`; then
+`cd android && ./gradlew assembleDebug` → `app/build/outputs/apk/debug/`.
+See §7 for details.
+
 ### The mobile shell (`mobile_shell` tool)
 
 On mobile the agent cannot run arbitrary host commands, but it still needs to
@@ -329,11 +366,78 @@ Notes:
 
 ---
 
-## 7. Troubleshooting
+## 7. Native Android app (`android/`)
+
+A dependency-free Kotlin app that embeds the engine in-process (no webview,
+no localhost HTTP). The APK ships both native libraries under
+`lib/arm64-v8a/`. **Full build instructions: [ANDROID.md](ANDROID.md)** —
+the short version:
+
+```bash
+cd backend && export ANDROID_NDK_HOME=... && ./tools/build_android.sh  # both .so → jniLibs
+cd android && ./gradlew assembleDebug                                   # → app-debug.apk
+```
+
+### Layout
+
+```
+android/
+├── app/build.gradle.kts          compileSdk 35, minSdk 24, zero deps
+├── app/src/main/AndroidManifest.xml   INTERNET permission, cleartext OK
+├── app/src/main/jniLibs/arm64-v8a/    libminiclaw_core.so + libminiclaw_jni.so
+└── app/src/main/java/com/miniclaw/
+    ├── core/NativeEngine.java        JNI facade (9 native methods)
+    └── app/  EngineClient.kt, MainActivity.kt   UI
+```
+
+### Build
+
+```bash
+# 1. native libs (builds miniclaw_core + miniclaw_jni for arm64-v8a and
+#    copies both into android/app/src/main/jniLibs/arm64-v8a/)
+cd backend && export ANDROID_NDK_HOME=... && ./tools/build_android.sh
+
+# 2. APK (needs Android SDK; local.properties: sdk.dir=C\:\\path\\to\\Sdk —
+#    note the *doubled* backslashes, Java properties escape single ones)
+cd android && ./gradlew assembleDebug
+# → app/build/outputs/apk/debug/app-debug.apk
+```
+
+Verified on this machine: AGP 8.7.3 + Gradle 8.9 + JDK 17, NDK r27d,
+`compileSdk 35`. The APK contains `lib/arm64-v8a/libminiclaw_core.so`
+(~110 MB, unstripped) and `lib/arm64-v8a/libminiclaw_jni.so` (~195 KB).
+
+### Runtime behavior
+
+- `MainActivity` creates the engine on first launch with
+  `workspace = <filesDir>/workspace` (the same layout the Tauri path uses).
+- Events: `token` streams into the current agent bubble; `tool_start`/
+  `tool_end` append collapsed activity lines; `done`/`error` update the
+  status bar. All hops happen on a main-thread `Handler`.
+- Settings dialog writes `conversation.endpoint` / `conversation.model` /
+  `conversation.api_key` into the engine config and persists them in
+  SharedPreferences.
+- The LLM endpoint must be reachable from the phone (the manifest allows
+  cleartext HTTP for local-network servers).
+
+### Testing without a device
+
+The engine path under the JNI is the same C ABI exercised by the desktop
+e2e harness (§6.1). What the desktop test does **not** cover is the JVM
+side: thread attaching, global refs, and main-thread marshaling. On a real
+device/emulator, `adb logcat -s miniclaw` shows engine logs; a missing JNI
+symbol shows up as `UnsatisfiedLinkError` naming the exact method.
+
+---
+
+## 8. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `UnsatisfiedLinkError: miniclaw_core` | `libminiclaw_core.so` missing from `jniLibs/<abi>/`, or ABI mismatch (build for `arm64-v8a`). |
+| `UnsatisfiedLinkError: ...NativeEngine.nativeX` | `libminiclaw_jni.so` missing or built against a different `NativeEngine.java` — rebuild with `build_android.sh`. |
+| Gradle: `filename, directory name, or volume label syntax is incorrect` | `local.properties` `sdk.dir` uses single backslashes; Java properties parsing eats them. Use doubled backslashes (`C\\path\\...`). |
+| Gradle: `Failed to find Platform SDK with path: platforms;android-NN` | Install that platform (e.g. `platforms/android-35`) or set `compileSdk` to an installed one. |
 | Engine init failed on app start | Check logcat for `[mobile] engine init failed`; usually a missing dependency lib (curl/ssl) — rebuild deps with `build_deps_android.sh`. |
 | Tools fail with "outside the app sandbox" | Expected: file tools are confined to the workspace. Adjust `memory.workspace` in config only if you know what you're doing. |
 | Desktop build broken after changes | Desktop is untouched by design: `cargo tauri dev` / `npm run tauri dev` as before. |

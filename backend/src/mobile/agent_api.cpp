@@ -29,6 +29,7 @@
 #include "agent/cron_service.hpp"
 #include "agent/fiber_pool.hpp"
 #include "config.hpp"
+#include "engine_internal.h"
 
 namespace {
 
@@ -363,6 +364,10 @@ void run_turn(McEngine *engine, const std::string &session_id,
 // The C ABI exposes `struct mc_engine` (opaque); internally it is McEngine.
 static inline McEngine *eng(mc_engine *e) { return reinterpret_cast<McEngine *>(e);
 }
+
+namespace mc {
+std::atomic<TurnCleanupFn> g_turn_cleanup{nullptr};
+} // namespace mc
 static inline mc_engine *uneng(McEngine *e) {
   return reinterpret_cast<mc_engine *>(e);
 }
@@ -488,6 +493,10 @@ void mc_send_message(mc_engine *engine, const char *session_id,
   // Detached worker: waits for the turn slot, then runs the turn on a fiber.
   std::thread([e, sid, msg = std::move(msg), cb, user_data]() {
     run_turn(e, sid, msg, cb, user_data);
+    // All events for this turn have been delivered at this point; let the
+    // host release any per-turn state tied to `user_data` (see
+    // engine_internal.h).
+    if (auto cleanup = mc::g_turn_cleanup.load()) cleanup(user_data);
   }).detach();
 }
 

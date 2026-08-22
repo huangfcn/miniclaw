@@ -344,6 +344,31 @@ if(MC_E2E_TEST AND NOT ANDROID AND NOT IOS)
     miniclaw_apply_core_target(mc_e2e)
 endif()
 
+# ── JNI bridge (native Android app, see android/) ───────────────────────────
+# Exposes the C ABI to Java/Kotlin as com.miniclaw.core.NativeEngine.
+# On Android this is built by default; on desktop it can be enabled with
+# -DMC_JNI=ON (requires JAVA_HOME) purely as a compile check.
+if(ANDROID)
+    set(_mc_jni_default ON)
+else()
+    set(_mc_jni_default OFF)
+endif()
+option(MC_JNI "Build the JNI bridge (libminiclaw_jni)" ${_mc_jni_default})
+if(MC_JNI)
+    add_library(miniclaw_jni SHARED src/mobile/jni_bridge.cpp)
+    set_target_properties(miniclaw_jni PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(miniclaw_jni PRIVATE src)
+    # mc_* symbols resolve from libminiclaw_core.so at runtime.
+    target_link_libraries(miniclaw_jni PRIVATE miniclaw_core)
+    if(ANDROID)
+        # jni.h ships in the NDK sysroot; nothing else needed.
+    else()
+        # Desktop compile check: use JDK headers from JAVA_HOME.
+        find_package(JNI REQUIRED)
+        target_link_libraries(miniclaw_jni PRIVATE JNI::JNI)
+    endif()
+endif()
+
 # (Search libs included in platform blocks)
 
 if(APPLE)

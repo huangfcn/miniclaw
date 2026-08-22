@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FF101418</color>
+    <color name="header">#FF1A2027</color>
+    <color name="text_primary">#FFEDEFF2</color>
+    <color name="text_secondary">#FF8B98A5</color>
+    <color name="bubble_agent">#FF232B34</color>
+    <color name="bubble_user">#FF2E5AAC</color>
+    <color name="accent">#FF4C8DFF</color>
+</resources>
