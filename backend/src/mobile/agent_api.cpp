@@ -69,6 +69,9 @@ embedding:
   endpoint: https://api.openai.com/v1/embeddings
   dimension: 1536
 
+web:
+  brave_api_key: ""
+
 logging:
   level: info
   file: backend.log

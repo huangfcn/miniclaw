@@ -1,204 +1,151 @@
 # Miniclaw Mobile (Android / iOS)
 
-This document explains how to build miniclaw as a smartphone-native personal
-assistant app.
+## 1. Vision & product model
 
-## Architecture
+miniclaw on a phone is **a personal agent that lives in the app's own
+sandbox** — not a client to a desktop gateway, not a cloud service. The
+motivation:
+
+- Desktop/cloud agents (OpenClaw & co.) are powerful but ask the user to
+  solve a *deployment problem* first: a machine that stays on, a service
+  that stays up, a setup most people never do.
+- The phone is the one computer a normal person already carries, always has
+  on, and already trusts with their identity (email, banking, calendar).
+  An agent shipped *as an app* is pre-deployed by definition.
+
+The target jobs are **life-shaped and network-shaped** — they need outbound
+HTTP, not filesystem or shell power:
+
+| Job | Tools involved |
+|---|---|
+| Daily news / finance digest | `web_search`, `web_fetch` + `cron` |
+| Email triage | `gmail` (OAuth token kept in the sandbox) |
+| Travel & hotel research | `web_search`, `web_fetch` |
+| "Knows you" continuity | memory distillation + hybrid search |
+
+**Model strategy** — three independent, config-driven endpoints
+(`config.yaml`):
+
+| Section | Role | Phase 1 (now) | Phase 2 (planned) |
+|---|---|---|---|
+| `conversation` | the agent's reasoning | strong API model | strong API model |
+| `memory` | distillation (summarization into L2/L3) | cheap API model | **small on-device model** |
+| `embedding` | RAG vectorizer | API or local endpoint | **small on-device model** |
+
+Phase 2 runs the two *small* models on-device (in-process llama.cpp behind
+the same C ABI, GGUF models in app-specific external storage) so private
+background work has zero network egress. Conversation quality stays on the
+API — a phone-sized model is not yet good enough for ReAct reasoning, and
+distillation quality is what the "knows you" loop depends on, so don't rush
+that swap.
+
+**The learning loop.** Every conversation feeds 3-stage distillation:
+`sessions/*.jsonl` → `memory/YYYY-MM-DD.md` (daily) → `MEMORY.md` /
+`USER.md` (permanent). Retrieval is hybrid Faiss + Lucene++ with reciprocal
+rank fusion and temporal decay. The brain is plain files in the workspace —
+readable, editable, exportable. That inspectability is the trust story no
+cloud assistant can match: the user can open `MEMORY.md` and see exactly
+what the agent believes about them.
+
+## 2. Architecture
+
+The mobile app is **native on each platform** — no webview, no localhost
+HTTP; the C++ engine runs **in-process**. Each platform has its own app and
+its own thin bridge to the C ABI; only the engine (and the sandbox rules)
+is shared:
 
 ```
 ┌─────────────────────────────── Phone ───────────────────────────────┐
-│  Tauri webview (React UI — chat, status, settings)                  │
-│        │  invoke() / events                                          │
-│  Rust host (frontend/src-tauri)                                     │
-│        │  C ABI (backend/src/mobile/agent_api.h)                     │
-│  libminiclaw_core.so / .dylib  ← the existing C++ engine            │
+│  Native app — one per platform, each its own UI & codebase          │
+│    • Android: Kotlin UI (MainActivity, EngineClient)   [shipped]    │
+│    • iOS:     Swift UI                                [planned]     │
+│        │                                                            │
+│  Thin bridge to the C ABI (per platform)                            │
+│    • Android: libminiclaw_jni.so (JNI, jni_bridge.cpp)              │
+│    • iOS:     Obj-C++ shim over agent_api.h                         │
+│        │  C ABI (backend/src/mobile/agent_api.h — mc_engine_*)      │
+│  libminiclaw_core.so / .dylib  ← the C++ engine                     │
 │    • ReAct loop + tools (sandboxed, no shell)                       │
-│    • Memory: SQLite FTS5 + Faiss                                    │
-│    • Fibers, cron, skills                                            │
-└──────────────────────────────────────────────────────────────────────┘
+│    • Memory: 3-stage distillation, Faiss + Lucene++ hybrid search   │
+│    • Fibers, cron, skills                                           │
+└─────────────────────────────── Phone ───────────────────────────────┘
 ```
+
+Desktop uses the same `libminiclaw_core` as a sidecar binary behind HTTP/SSE;
+on mobile it is embedded as a shared library. The iOS app is **its own app**
+— it does not need to match Android's UI or structure; it only shares the
+C ABI and the engine.
 
 Key differences from desktop:
 
 | | Desktop | Mobile |
 |---|---|---|
-| Engine process | Sidecar binary (`miniclaw.exe`) | Embedded shared library |
-| Frontend ↔ engine | HTTP `localhost:9000` SSE | Tauri commands + `agent-event` events |
+| Engine process | Sidecar `miniclaw` (thin host over the C ABI, links `libminiclaw_core`) | Embedded shared library |
+| Frontend ↔ engine | HTTP `localhost:9000` SSE | JNI (Android) / Obj-C++ shim (iOS), in-process |
 | Shell/exec tool | Full host shell | Sandboxed POSIX-style shell (`mobile_shell.hpp`, `MC_MOBILE`) |
 | File tools | Full filesystem | Sandboxed to app data dir |
-| Local models | Any local endpoint | Config-driven endpoints (see below) |
+| Env vars | available | **none** — all secrets/keys via config (`mc_set_string`) |
 
 The C++ core is **unchanged** except for:
-- `backend/src/mobile/agent_api.{h,cpp}` — thin C ABI wrapper (`mc_engine_*`).
+- `backend/src/mobile/agent_api.{h,cpp}` — thin C ABI wrapper (`mc_engine_*`),
+  incl. first-launch workspace seeding (`seed_bootstrap_files`,
+  `kDefaultConfigYaml`).
 - `backend/src/tools/mobile_sandbox.hpp` + checks in `file.hpp` — path sandbox.
-- `backend/src/tools/mobile_shell.hpp` — sandboxed shell for the `mobile_shell`
-  tool (see below).
-- `backend/src/agent.cpp` — `exec` replaced by `mobile_shell` when `MC_MOBILE`
-  is set.
-- `backend/CMakeLists.txt` — new `miniclaw_core` shared library target.
+- `backend/src/tools/mobile_shell.hpp` — sandboxed shell (below).
+- `backend/src/agent.cpp` — `exec` replaced by `mobile_shell` when
+  `MC_MOBILE` is set.
+- `backend/CMakeLists.txt` — `miniclaw_core` shared library target.
 
-### Native Android app (no webview)
+### Android implementation (current)
 
-Besides the Tauri/webview path above, the repo contains a **native Android app**
-in `android/` — plain Kotlin + framework widgets, no webview, zero external
-dependencies. It talks to the same C++ engine through a JNI bridge:
+The JNI bridge
+(`jni_bridge.cpp` → `libminiclaw_jni.so`) implements the 9
+`Java_com_miniclaw_core_NativeEngine_*` methods over the C ABI; engine
+callbacks arrive on worker threads that the bridge attaches to the JVM.
+`EngineClient.kt` hops events to the UI thread; `MainActivity.kt` renders
+the chat, tool activity lines, status bar, and the settings dialog
+(`conversation.*` + `web.brave_api_key`, persisted in SharedPreferences,
+pushed live via `setString()`).
 
+**Full build & run instructions: [ANDROID.md](android/ANDROID.md)** — short version:
+
+```bash
+cd backend && export ANDROID_NDK_HOME=... && ./tools/build_android.sh  # both .so → jniLibs
+cd android && ./gradlew assembleDebug                                   # → app-debug.apk
 ```
-┌─────────────────────────────── Phone ───────────────────────────────┐
-│  Kotlin UI (android/app: Activity + ListView chat)                  │
-│        │  EngineClient (marshals events to the main thread)         │
-│  com.miniclaw.core.NativeEngine (Java, JNI facade)                  │
-│        │  JNI (libminiclaw_jni.so — attaches worker threads to JVM) │
-│  libminiclaw_core.so  ← same C ABI (agent_api.h) as the Tauri path  │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-- `backend/src/mobile/jni_bridge.cpp` → `libminiclaw_jni.so`: implements the
-  nine `Java_com_miniclaw_core_NativeEngine_*` methods over the C ABI.
-  Engine callbacks arrive on internal worker threads; the bridge attaches
-  them to the JVM and holds a global ref to the Java listener. The listener
-  is freed by an engine-internal cleanup hook that runs after the turn
-  completes (never inside the callback — the loop can emit `done` after
-  `error`).
-- `android/app/src/main/java/com/miniclaw/core/NativeEngine.java` — JNI
-  facade (`create`/`destroy`/`sendMessage`/`setString`/… + `EventListener`).
-- `android/app/src/main/java/com/miniclaw/app/EngineClient.kt` — hops events
-  from the JNI thread to the UI thread via a `Handler`.
-- `android/app/src/main/java/com/miniclaw/app/MainActivity.kt` — chat UI:
-  streaming agent bubble, tool start/end activity lines (collapsed to the
-  first line, like the webview), status bar, settings dialog
-  (endpoint/model/api-key persisted in SharedPreferences).
-
-Build: `backend/tools/build_android.sh` produces **both** `.so` files and
-copies them into `android/app/src/main/jniLibs/arm64-v8a/`; then
-`cd android && ./gradlew assembleDebug` → `app/build/outputs/apk/debug/`.
-See §7 for details.
 
 ### The mobile shell (`mobile_shell` tool)
 
-On mobile the agent cannot run arbitrary host commands, but it still needs to
-inspect and edit its memory/workspace. `mobile_shell` provides a small, fully
-sandboxed POSIX-style shell implemented in C++ (no fork/exec): `ls`, `cat`,
-`head`, `tail`, `wc`, `grep`, `find`, `sort`, `uniq`, `cut`, `echo`, `pwd`,
-`mkdir`, `touch`, `cp`, `mv`, `rm`, `basename`, `dirname`, `which`, `date` —
-with pipelines (`|`) and quotes. Every path is resolved and checked against
-the workspace sandbox (including `..` escapes), so the agent can only touch
-its own files.
+On mobile the agent cannot run arbitrary host commands, but it still needs
+to inspect and edit its memory/workspace. `mobile_shell` is a small, fully
+sandboxed POSIX-style shell implemented in C++ (**no fork/exec**): `ls`,
+`cat`, `head`, `tail`, `wc`, `grep`, `find`, `sort`, `uniq`, `cut`, `echo`,
+`pwd`, `mkdir`, `touch`, `cp`, `mv`, `rm`, `basename`, `dirname`, `which`,
+`date` — with pipelines (`|`) and quotes. Every path is resolved and checked
+against the workspace sandbox (including `..` escapes), so the agent can
+only touch its own files.
 
----
+### Sandbox & permissions
 
-## 1. Build the C++ core for Android
+The confinement is layered, strongest first:
 
-Prereqs: Android NDK (r26+), Android SDK, CMake ≥ 3.20.
+1. **OS** — the app runs as its own Linux UID; with no storage permissions
+   granted, the kernel blocks all file access outside the app's private dir.
+2. **Engine** — `MC_MOBILE_PATH_CHECK` in every file tool; `mobile_shell`
+   builtin-only, no process spawning.
+3. **Manifest** — `INTERNET` only (+ cleartext for local-network LLM
+   servers). No contacts, no location, no other-app data.
 
-```bash
-cd backend
-export ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/26.1.10909125   # your path
-./tools/build_deps_android.sh          # libcurl, OpenSSL, zlib, OpenBLAS
-./tools/build_android.sh               # builds miniclaw + miniclaw_core
-```
+Consequence: the agent is a full-power agent *inside its own home
+directory*. It can't be pointed at other apps' data or the host system —
+by construction, not by policy.
 
-`build_android.sh` produces (in `build-android/`):
-- `libminiclaw_core.so` ← the library Tauri links against
-- `miniclaw` (standalone binary, optional for adb debugging)
-
-Copy the library into the Tauri Android project (Tauri merges `jniLibs`
-automatically):
-
-```bash
-mkdir -p ../frontend/src-tauri/android/app/src/main/jniLibs/arm64-v8a
-cp build-android/libminiclaw_core.so \
-   ../frontend/src-tauri/android/app/src/main/jniLibs/arm64-v8a/
-```
-
-(Add `armeabi-v7a` / `x86_64` the same way if you need those ABIs — most
-modern phones only need `arm64-v8a`.)
-
-### iOS (on a Mac)
-
-```bash
-cd backend
-cmake -B build-ios \
-  -DCMAKE_TOOLCHAIN_FILE=$PWD/tools/ios-toolchain.cmake \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DUSE_SQLITE=ON
-cmake --build build-ios --target miniclaw_core -j8
-```
-
-(See `tools/build_ios.sh` once added — the Android script is the template;
-iOS additionally needs faiss/openssl built for `arm64-apple-ios15.0`. The
-existing scripts under `tools/` already handle most of this.)
-
-Then in Xcode (`frontend/src-tauri/ios/App.xcproj`):
-1. Drag `libminiclaw_core.dylib` into the project (Copy Items If Needed).
-2. Target → General → Frameworks, Libraries: add it under **Embed & Sign**.
-3. Add `-l"miniclaw_core"` is implicit via the dylib; ensure the app's
-   `Runpath Search Paths` include `@executable_path/Frameworks`.
-
----
-
-## 2. Initialize the Tauri mobile projects
-
-One-time, on a machine with the Android SDK (and Xcode for iOS):
-
-```bash
-cd frontend
-npm install @tauri-apps/cli
-
-# Android
-npx tauri android init \
-  --app-name miniclaw \
-  --app-id com.miniclaw.app \
-  --org "miniclaw"
-
-# iOS (macOS only)
-npx tauri ios init \
-  --app-name miniclaw \
-  --app-id com.miniclaw.app \
-  --org-identifier MINICLAW
-```
-
-This generates `src-tauri/android/` and `src-tauri/ios/`. Commit them.
-
-### Android permissions (add to `android/app/src/main/AndroidManifest.xml`)
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<!-- optional: keep agent alive for background distillation/cron -->
-<uses-permission android:name="android.permission.WAKE_LOCK" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-```
-
-Tauri requests `INTERNET` by default; add the others as features land.
-
----
-
-## 3. Build & run
-
-### Android
-
-```bash
-cd frontend
-npx tauri android build --debug        # or: npx tauri android dev
-adb install -r src-tauri/android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-### iOS
-
-```bash
-cd frontend
-npx tauri ios build                    # opens Xcode / produces .app
-npx tauri ios dev                      # run on a connected device
-```
-
----
-
-## 4. Where the app stores data
+## 3. Where the app stores data
 
 On mobile the engine workspace is the app's private data dir:
 
 - **Android**: `/data/data/com.miniclaw.app/files/workspace` (i.e. `context.filesDir`)
-- **iOS**: `~/Library/Application Support/.../workspace` (sandboxed)
+- **iOS**: the app's sandboxed container (Documents/Application Support)
 
 `config.yaml` sits next to it. The file tools can only touch paths inside
 this workspace; everything else is rejected with
@@ -212,16 +159,16 @@ app follows the standard Android storage rules:
 
 | Data | Location | Why |
 |---|---|---|
-| `config.yaml`, workspace (memory/, sessions/, skills/, index/) | **Internal storage** (`context.filesDir` via Tauri `app_data_dir`) | Private to the app, no permissions needed, survives low-space clears, deleted on uninstall — exactly what a personal assistant wants |
-| Bootstrap files (`AGENTS.md`, `SOUL.md`, `USER.md`, `TOOLS.md`, `IDENTITY.md`) + default config | **Generated in C++ on first launch** into the workspace | No assets to copy: the mobile shim (`seed_bootstrap_files` in `backend/src/mobile/agent_api.cpp`) writes them only if missing, so the user/agent can edit them later. Same code path on iOS |
+| `config.yaml`, workspace (memory/, sessions/, skills/, index/) | **Internal storage** (`context.filesDir`) | Private to the app, no permissions needed, deleted on uninstall — exactly what a personal assistant wants |
+| Bootstrap files (`AGENTS.md`, `SOUL.md`, `USER.md`, `TOOLS.md`, `IDENTITY.md`) + default config | **Generated in C++ on first launch** into the workspace | No assets to copy: `seed_bootstrap_files` in `agent_api.cpp` writes them only if missing, so the user/agent can edit them later. Same code path on iOS |
 | Temporary scratch (if ever needed) | `context.cacheDir` | OS may clear it — never put memory state here |
-| Large binaries (future on-device GGUF models) | **External app-specific storage** (`context.getExternalFilesDir(...)`) | Still app-private and permission-free, but lives on shared media so multi-GB model files don't pressure the internal partition. Copy from assets/internal on first download, then load by absolute path |
+| Large binaries (future on-device GGUF models) | **External app-specific storage** (`context.getExternalFilesDir(...)`) | Still app-private and permission-free, but lives on shared media so multi-GB model files don't pressure the internal partition |
 | Shared/MediaStore storage | **Not used** | Would require extra permissions and expose private assistant data to other apps — against the privacy goal |
 
-If you later want richer bundled templates (long prompts, many skills) edited
-in Android Studio instead of C++ string constants, the standard pattern is:
-put them under `src/main/assets/workspace/` and copy them into `filesDir`
-once at first launch (Kotlin, before engine init):
+If you later want richer bundled templates (long prompts, many skills)
+edited in Android Studio instead of C++ string constants, the standard
+pattern is: put them under `src/main/assets/workspace/` and copy them into
+`filesDir` once at first launch (Kotlin, before engine init):
 
 ```kotlin
 fun Context.copyAssetDir(assetDir: String, dest: File) {
@@ -240,49 +187,65 @@ copyAssetDir("workspace", File(filesDir, "workspace"))
 
 The C++ seeding already covers the default case, so this is optional.
 
----
+## 4. Building
 
-## 5. Local models & privacy strategy
+### Android (native app) — see [ANDROID.md](android/ANDROID.md)
 
-The config already supports three independent endpoints:
+Prereqs: NDK r26+ (verified r27.3), SDK platform 35, **JDK 17** (note:
+Android Studio's bundled JBR may be too new for the committed Gradle 8.9),
+CMake ≥ 3.20.
 
-```yaml
-llm:
-  base_url: "https://api.openai.com/v1"      # conversation (remote, quality)
-  api_key: "sk-..."
-  model: "gpt-4o-mini"
+```bash
+cd backend
+export ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/27.3.13750724   # your path
+./tools/build_deps_android.sh          # libcurl, OpenSSL, zlib, OpenBLAS (one-time)
+./tools/build_android.sh               # builds miniclaw_core + miniclaw_jni → jniLibs
 
-distillation:                                  # private background work
-  enabled: true
-  base_url: "http://127.0.0.1:8080/v1"        # local OpenAI-compatible server
-  model: "qwen2.5-7b-instruct-q4"             # summarization / memory distill
-
-embeddings:
-  base_url: "http://127.0.0.1:8080/v1"        # local embeddings
-  model: "nomic-embed-text-v1.5"
+cd android
+export JAVA_HOME=/path/to/jdk17
+./gradlew assembleDebug                # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
-On a phone, `127.0.0.1` endpoints mean **in-process** or **on-device**
-model servers. Two supported paths:
+The APK ships `lib/arm64-v8a/` only — **emulators need an ARM 64 system
+image** (or add an `x86_64` build for fast x86 iteration; details and the
+WHPX/Hyper-V notes are in `android/ANDROID.md`).
 
-1. **First phase (now)**: point `distillation`/`embeddings` at any
-   OpenAI-compatible server you run (home server, LAN, or a later
-   in-app llama.cpp service). Conversation stays on the remote API.
+### Manifest permissions for background features (roadmap)
 
-2. **Second phase (planned)**: embed llama.cpp inside `miniclaw_core`
-   (GGUF models shipped as app assets or downloaded on first launch),
-   exposing an in-process OpenAI-compatible endpoint on a local port —
-   then all private background work runs fully on-device with zero
-   network egress. The C ABI (`mc_engine_*`) already isolates this:
-   model loading can be added behind `mc_set_config` without touching the
-   Rust or frontend layers.
+The manifest currently requests `INTERNET` only. When the proactive-agent
+work lands (§6), add:
 
-No root, no adb, no shell — everything stays inside the normal mobile
-sandbox and platform APIs.
+```xml
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<!-- foregroundService + FOREGROUND_SERVICE_DATA_SYNC for job execution -->
+```
 
----
+### iOS (on a Mac)
 
-## 6. Testing the mobile shell
+The engine exposes a plain C ABI, so the iOS app links it through a thin
+Obj-C++ shim over `agent_api.h`, plus the core built for `arm64-apple-ios`:
+
+```bash
+cd backend
+cmake -B build-ios \
+  -DCMAKE_TOOLCHAIN_FILE=$PWD/tools/ios-toolchain.cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DUSE_SQLITE=ON
+cmake --build build-ios --target miniclaw_core -j8
+```
+
+(See `tools/build_ios.sh` once added — the Android script is the template;
+iOS additionally needs faiss/openssl built for `arm64-apple-ios15.0`.)
+
+In Xcode: embed `libminiclaw_core.dylib` under **Embed & Sign**, ensure
+`Runpath Search Paths` include `@executable_path/Frameworks`, and use
+**static** libc++ (don't ship a second C++ runtime). Verify the sandbox
+root constant maps to the iOS container's Documents dir.
+
+## 5. Testing
+
+### 5.1 Mobile shell unit tests
 
 A functional test suite lives in `backend/test/mobile_shell_test.cpp`
 (compile with `-DMC_MOBILE`; it exercises every command, pipelines, and
@@ -302,7 +265,7 @@ g++ -std=c++20 -O1 -DMC_MOBILE \
 
 Expected output ends with `ALL TESTS PASSED`.
 
-### 6.1 Desktop end-to-end test (C ABI + mock LLM)
+### 5.2 Desktop end-to-end test (C ABI + mock LLM)
 
 `backend/test/mobile_e2e_test.cpp` drives the real mobile entry points
 (`mc_engine_create` → `mc_send_message`) on desktop, proving the full path:
@@ -364,80 +327,47 @@ Notes:
 - Tool output is multi-line; don't filter driver output with
   `grep '^\[event\]'` or you will drop all but the first line.
 
----
+### 5.3 On-device checks
 
-## 7. Native Android app (`android/`)
-
-A dependency-free Kotlin app that embeds the engine in-process (no webview,
-no localhost HTTP). The APK ships both native libraries under
-`lib/arm64-v8a/`. **Full build instructions: [ANDROID.md](ANDROID.md)** —
-the short version:
+The JVM side (thread attaching, global refs, main-thread marshaling) only
+runs on a real device/emulator:
 
 ```bash
-cd backend && export ANDROID_NDK_HOME=... && ./tools/build_android.sh  # both .so → jniLibs
-cd android && ./gradlew assembleDebug                                   # → app-debug.apk
+adb logcat -s miniclaw                      # engine logs
+adb shell run-as com.miniclaw.app ls files/workspace   # inspect the brain
 ```
 
-### Layout
+A missing JNI symbol shows up as `UnsatisfiedLinkError` naming the exact
+method.
 
-```
-android/
-├── app/build.gradle.kts          compileSdk 35, minSdk 24, zero deps
-├── app/src/main/AndroidManifest.xml   INTERNET permission, cleartext OK
-├── app/src/main/jniLibs/arm64-v8a/    libminiclaw_core.so + libminiclaw_jni.so
-└── app/src/main/java/com/miniclaw/
-    ├── core/NativeEngine.java        JNI facade (9 native methods)
-    └── app/  EngineClient.kt, MainActivity.kt   UI
-```
+## 6. Roadmap (mobile)
 
-### Build
+1. **Proactive agent** *(the big one)* — scheduled jobs (morning digest,
+   email triage, travel watch) that survive process death: WorkManager /
+   foreground service on Android, Background Tasks on iOS. The engine's
+   `cron` tool exists; what's missing is OS-level wake-up and a job model
+   designed for "10–30 seconds of process life per wakeup" — state lives in
+   the workspace, not RAM: cold start → read workspace → do work → write
+   memory → notify → die.
+2. **Real UX** — expandable tool traces, a visible memory panel ("what it
+   knows about you", editable), job status. The learning loop only compounds
+   if users can *see* it.
+3. **Trust features** — Keystore-backed token storage (Gmail OAuth),
+   one-tap memory export/backup (move-to-new-phone = copy the workspace),
+   permission explanations.
+4. **iOS** — same core; Obj-C++ shim + app shell.
+5. **On-device small models** — distillation & embeddings locally (phase 2
+   of §1's model strategy).
 
-```bash
-# 1. native libs (builds miniclaw_core + miniclaw_jni for arm64-v8a and
-#    copies both into android/app/src/main/jniLibs/arm64-v8a/)
-cd backend && export ANDROID_NDK_HOME=... && ./tools/build_android.sh
-
-# 2. APK (needs Android SDK; local.properties: sdk.dir=C\:\\path\\to\\Sdk —
-#    note the *doubled* backslashes, Java properties escape single ones)
-cd android && ./gradlew assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
-```
-
-Verified on this machine: AGP 8.7.3 + Gradle 8.9 + JDK 17, NDK r27d,
-`compileSdk 35`. The APK contains `lib/arm64-v8a/libminiclaw_core.so`
-(~110 MB, unstripped) and `lib/arm64-v8a/libminiclaw_jni.so` (~195 KB).
-
-### Runtime behavior
-
-- `MainActivity` creates the engine on first launch with
-  `workspace = <filesDir>/workspace` (the same layout the Tauri path uses).
-- Events: `token` streams into the current agent bubble; `tool_start`/
-  `tool_end` append collapsed activity lines; `done`/`error` update the
-  status bar. All hops happen on a main-thread `Handler`.
-- Settings dialog writes `conversation.endpoint` / `conversation.model` /
-  `conversation.api_key` into the engine config and persists them in
-  SharedPreferences.
-- The LLM endpoint must be reachable from the phone (the manifest allows
-  cleartext HTTP for local-network servers).
-
-### Testing without a device
-
-The engine path under the JNI is the same C ABI exercised by the desktop
-e2e harness (§6.1). What the desktop test does **not** cover is the JVM
-side: thread attaching, global refs, and main-thread marshaling. On a real
-device/emulator, `adb logcat -s miniclaw` shows engine logs; a missing JNI
-symbol shows up as `UnsatisfiedLinkError` naming the exact method.
-
----
-
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `UnsatisfiedLinkError: miniclaw_core` | `libminiclaw_core.so` missing from `jniLibs/<abi>/`, or ABI mismatch (build for `arm64-v8a`). |
 | `UnsatisfiedLinkError: ...NativeEngine.nativeX` | `libminiclaw_jni.so` missing or built against a different `NativeEngine.java` — rebuild with `build_android.sh`. |
-| Gradle: `filename, directory name, or volume label syntax is incorrect` | `local.properties` `sdk.dir` uses single backslashes; Java properties parsing eats them. Use doubled backslashes (`C\\path\\...`). |
-| Gradle: `Failed to find Platform SDK with path: platforms;android-NN` | Install that platform (e.g. `platforms/android-35`) or set `compileSdk` to an installed one. |
+| `web_search`: "BRAVE_API_KEY not configured" on mobile | Set it in the app's settings dialog (⚙) — Android processes have no env vars; the key is read from config (`web.brave_api_key`). Desktop: `BRAVE_API_KEY` env var still works. |
+| Gradle: `What went wrong: 25.x` (bare version) | `JAVA_HOME` points at a JDK newer than Gradle 8.9 supports — use JDK 17. |
+| CMake: `CMakeCache.txt directory ... is different` after moving the repo | Build tree remembers its old absolute path — delete `build-android/CMakeCache.txt` + `CMakeFiles/` (see `android/ANDROID.md` for the FetchContent subbuild fix). |
 | Engine init failed on app start | Check logcat for `[mobile] engine init failed`; usually a missing dependency lib (curl/ssl) — rebuild deps with `build_deps_android.sh`. |
 | Tools fail with "outside the app sandbox" | Expected: file tools are confined to the workspace. Adjust `memory.workspace` in config only if you know what you're doing. |
 | Desktop build broken after changes | Desktop is untouched by design: `cargo tauri dev` / `npm run tauri dev` as before. |

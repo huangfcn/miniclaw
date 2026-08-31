@@ -122,9 +122,11 @@ class MainActivity : Activity() {
         val endpoint = p.getString("endpoint", "") ?: ""
         val model = p.getString("model", "") ?: ""
         val key = p.getString("api_key", "") ?: ""
+        val braveKey = p.getString("brave_api_key", "") ?: ""
         if (endpoint.isNotEmpty()) client.setString("conversation", "endpoint", endpoint)
         if (model.isNotEmpty()) client.setString("conversation", "model", model)
         if (key.isNotEmpty()) client.setString("conversation", "api_key", key)
+        if (braveKey.isNotEmpty()) client.setString("web", "brave_api_key", braveKey)
     }
 
     private fun showSettings() {
@@ -138,6 +140,11 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         fKey.setText(p.getString("api_key", ""))
+        val fBraveKey = EditText(this).apply {
+            hint = "brave search api key (optional, for web_search)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        fBraveKey.setText(p.getString("brave_api_key", ""))
 
         val pad = (16 * resources.displayMetrics.density).toInt()
         val container = LinearLayout(this).apply {
@@ -146,6 +153,7 @@ class MainActivity : Activity() {
             addView(fEndpoint)
             addView(fModel)
             addView(fKey)
+            addView(fBraveKey)
         }
 
         AlertDialog.Builder(this)
@@ -156,10 +164,12 @@ class MainActivity : Activity() {
                     .putString("endpoint", fEndpoint.text.toString())
                     .putString("model", fModel.text.toString())
                     .putString("api_key", fKey.text.toString())
+                    .putString("brave_api_key", fBraveKey.text.toString())
                     .apply()
                 client.setString("conversation", "endpoint", fEndpoint.text.toString())
                 client.setString("conversation", "model", fModel.text.toString())
                 client.setString("conversation", "api_key", fKey.text.toString())
+                client.setString("web", "brave_api_key", fBraveKey.text.toString())
                 Toast.makeText(this, "saved", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)

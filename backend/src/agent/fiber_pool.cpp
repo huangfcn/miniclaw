@@ -11,6 +11,7 @@
 
 #include <simdjson.h>
 #include "agent.hpp"
+#include "config.hpp"
 #include "json_util.hpp"
 
 extern "C" {
@@ -372,16 +373,20 @@ void FiberNode::thread_func() {
 
 #ifndef MC_MOBILE
     // Mobile drives the engine in-process via the C ABI (agent_api.h); no
-    // local HTTP server is needed (and binding a port per fiber node would
-    // just fail after the first one).
-    uws_app->listen(9000, LIBUS_LISTEN_DEFAULT, [this](auto *listen_socket) {
-        if (listen_socket) {
-            spdlog::info("FiberNode listening on port 9000");
-            this->listen_socket_ = listen_socket;
-        } else {
-            spdlog::error("FiberNode failed to listen on port 9000");
-        }
-    });
+    // local HTTP server is needed. On desktop exactly one FiberNode binds
+    // the port (the first to start); the remaining nodes still serve as
+    // fiber/scheduler workers for agent turns.
+    if (FiberPool::instance().claim_http_listener()) {
+        int port = Config::instance().server_port();
+        uws_app->listen(port, LIBUS_LISTEN_DEFAULT, [this, port](auto *listen_socket) {
+            if (listen_socket) {
+                spdlog::info("FiberNode listening on port {}", port);
+                this->listen_socket_ = listen_socket;
+            } else {
+                spdlog::error("FiberNode failed to listen on port {}", port);
+            }
+        });
+    }
 #endif
 
 #ifdef _WIN32

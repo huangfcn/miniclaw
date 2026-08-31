@@ -69,8 +69,15 @@ public:
     // Round-robin dispatch
     void spawn(std::function<void()> task);
 
+    // Desktop HTTP server: exactly one FiberNode binds the listen socket;
+    // the rest are pure worker nodes. Returns true for the claiming node.
+    bool claim_http_listener() {
+        return !http_listener_claimed_.exchange(true);
+    }
+
 private:
     FiberPool() = default;
     std::vector<std::unique_ptr<FiberNode>> nodes_;
     std::atomic<size_t> next_node_{0};
+    std::atomic<bool> http_listener_claimed_{false};
 };

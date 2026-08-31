@@ -240,8 +240,9 @@ target_link_libraries(uSockets PRIVATE uv_a)
 
 set_target_properties(uSockets PROPERTIES LINKER_LANGUAGE C)
 
-# ── Core sources (shared between the desktop executable and the embeddable
-#    library used by Tauri on mobile) ────────────────────────────────────────
+# ── Core sources (compiled into the embeddable shared library; every entry
+#    point — desktop console wrapper, Android/iOS app — drives it through the
+#    mc_* C ABI) ─────────────────────────────────────────────────────────────
 set(MINICLAW_CORE_SOURCES
     src/agent.cpp
     src/agent/fiber_pool.cpp
@@ -254,8 +255,8 @@ if(ANDROID)
     list(APPEND MINICLAW_CORE_SOURCES src/agent/lapack_android_stub.c)
 endif()
 
-# Helper: apply the same include dirs / definitions / link libraries to a
-# target as the desktop `miniclaw` executable gets.
+# Helper: apply the core include dirs / definitions / link libraries to a
+# target (used by miniclaw_core and the optional mc_e2e test driver).
 function(miniclaw_apply_core_target tgt)
     target_include_directories(${tgt} PRIVATE 
         src
@@ -285,7 +286,7 @@ function(miniclaw_apply_core_target tgt)
         yaml-cpp
         simdjson
     )
-    # Platform-specific search/BLAS libs (mirror of the miniclaw blocks below)
+    # Platform-specific search/BLAS libs
     if(APPLE)
         target_link_libraries(${tgt} PRIVATE 
             ${SEARCH_LIBS}
@@ -320,6 +321,15 @@ endfunction()
 add_library(miniclaw_core SHARED ${MINICLAW_CORE_SOURCES} src/mobile/agent_api.cpp)
 set_target_properties(miniclaw_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# MinGW (MSYS2) binutils 2.41+ no longer exports all global symbols from a
+# DLL by default, so the mc_* C ABI and shutdown helpers would be missing
+# from the import library and the desktop `miniclaw` wrapper couldn't
+# link against them. Request explicit export of all symbols on MinGW; ELF and
+# Mach-O already export globals by default.
+if(MINGW)
+    target_link_options(miniclaw_core PRIVATE -Wl,--export-all-symbols)
+endif()
+
 if(ANDROID OR IOS OR (FORCE_MOBILE AND NOT ANDROID AND NOT IOS))
     # Mobile builds: no raw shell, file tools sandboxed to the workspace.
     target_compile_definitions(miniclaw_core PRIVATE MC_MOBILE)
@@ -327,11 +337,19 @@ endif()
 
 miniclaw_apply_core_target(miniclaw_core)
 
-add_executable(miniclaw src/main.cpp ${MINICLAW_CORE_SOURCES})
-if(ANDROID OR IOS OR (FORCE_MOBILE AND NOT ANDROID AND NOT IOS))
-    target_compile_definitions(miniclaw PRIVATE MC_MOBILE)
+# ── Desktop console server (sidecar) ────────────────────────────────────────
+# Standalone console app that drives the engine through the same C ABI
+# (mc_engine_*) as mobile, linking the shared libminiclaw_core instead of
+# compiling the core sources in. It waits on a port with the classic
+# HTTP/SSE endpoints (see src/main.cpp). Desktop-only: mobile embeds the
+# library in-process and never spawns this.
+if(NOT ANDROID AND NOT IOS)
+    add_executable(miniclaw src/main.cpp)
+    target_include_directories(miniclaw PRIVATE src)
+    # mc_* symbols + the embedded HTTP server resolve from libminiclaw_core
+    # at runtime (same shared library Android/iOS embed).
+    target_link_libraries(miniclaw PRIVATE miniclaw_core)
 endif()
-miniclaw_apply_core_target(miniclaw)
 
 # Desktop end-to-end test for the mobile C ABI (see MOBILE.md).
 # Build with: cmake -B build -DFORCE_MOBILE=ON -DMC_E2E_TEST=ON
@@ -366,37 +384,6 @@ if(MC_JNI)
         # Desktop compile check: use JDK headers from JAVA_HOME.
         find_package(JNI REQUIRED)
         target_link_libraries(miniclaw_jni PRIVATE JNI::JNI)
-    endif()
-endif()
-
-# (Search libs included in platform blocks)
-
-if(APPLE)
-    target_link_libraries(miniclaw PRIVATE 
-        ${SEARCH_LIBS}
-        "-framework Accelerate"
-        "/opt/homebrew/opt/libomp/lib/libomp.dylib"
-    )
-    target_link_libraries(miniclaw PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
-elseif(WIN32)
-    target_link_libraries(miniclaw PRIVATE 
-        ${SEARCH_LIBS}
-        openblas
-        ws2_32
-        iphlpapi
-        userenv
-        dbghelp
-        gomp
-    )
-    target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
-else()
-    target_link_libraries(miniclaw PRIVATE 
-        ${SEARCH_LIBS}
-        OpenMP::OpenMP_CXX
-    )
-    target_link_libraries(miniclaw PRIVATE ${BLAS_LAPACK_LIBS})
-    if(NOT ANDROID)
-        target_link_libraries(miniclaw PRIVATE ${Boost_LIBRARIES})
     endif()
 endif()
 
