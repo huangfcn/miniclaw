@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 project(miniclaw VERSION 0.1.0 LANGUAGES C CXX ASM)
+
+# The main artifact is a shared library (libminiclaw_core) on every platform;
+# compile all static deps (fiber_lib, libuv, uSockets, faiss, ...) with -fPIC
+# so they can be linked into it. Linux enforces this at link time (R_X86_64_TPOFF32
+# relocation errors); Windows/Android don't care but it's harmless.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 set(CMAKE_CXX_STANDARD 20)
