@@ -63,11 +63,18 @@ endif()
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # AppleClang accepts -fopenmp but ships neither omp.h nor the runtime;
-    # Homebrew's libomp (brew install libomp) provides both. OPENMP_ROOT is
-    # the search prefix FindOpenMP actually honors — setting OpenMP_*_FLAGS
-    # beforehand has no effect, which is why faiss used to fail with
-    # "'omp.h' file not found".
-    set(OPENMP_ROOT "/opt/homebrew/opt/libomp" CACHE PATH "Homebrew libomp prefix")
+    # Homebrew's libomp (brew install libomp) provides both. It is keg-only,
+    # so it is NOT in AppleClang's default search path. FindOpenMP's AppleClang
+    # branch locates the runtime via find_library(HINTS <implicit link dirs>)
+    # and the header via find_path — both of which honor CMAKE_LIBRARY_PATH /
+    # CMAKE_PREFIX_PATH. Seed those (as cache vars so the faiss subproject,
+    # which calls find_package(OpenMP) itself, sees them too). Setting
+    # OpenMP_*_FLAGS beforehand has no effect, which is why faiss used to fail
+    # with "'omp.h' file not found".
+    list(APPEND CMAKE_LIBRARY_PATH "/opt/homebrew/opt/libomp/lib")
+    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/libomp")
+    set(CMAKE_LIBRARY_PATH "${CMAKE_LIBRARY_PATH}" CACHE PATH "Extra lib search paths" FORCE)
+    set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" CACHE STRING "Extra prefix search paths" FORCE)
 endif()
 
 find_package(OpenMP REQUIRED)
