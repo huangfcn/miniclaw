@@ -56,12 +56,60 @@ if(ANDROID)
         IMPORTED_LOCATION "${ZLIB_LIBRARY}"
     )
 elseif(IOS)
-    # curl and zlib ship in the iOS SDK (libcurl.tbd / libz.tbd). OpenSSL does
-    # not — and we never use it directly (libcurl on iOS does TLS via
-    # SecureTransport, uSockets is built with LIBUS_NO_SSL) — so provide no-op
-    # targets to keep the shared link lines uniform across platforms.
-    find_package(CURL REQUIRED)
-    find_package(ZLIB REQUIRED)
+    # curl and zlib ship in the iOS SDK as toolchain-provided .tbd stubs
+    # (usr/lib/libcurl.tbd, usr/lib/libz.tbd). Reference them directly instead
+    # of find_package(CURL/ZLIB): the Find modules' root-path-restricted search
+    # has been observed to miss these stubs in iOS cross-configures, and the
+    # SDK location is unambiguous. Headers resolve from <SDK>/usr/include via
+    # -isysroot; we still expose it explicitly on the targets below.
+    #
+    # OpenSSL does not ship in the iOS SDK — and we never use it directly
+    # (libcurl on iOS does TLS via SecureTransport, uSockets is built with
+    # LIBUS_NO_SSL) — so provide no-op targets to keep the shared link lines
+    # uniform across platforms.
+    # CMake resolves the SDK (default: "iphoneos") to an absolute path during
+    # compiler detection; if it ever comes through as just a name, resolve it
+    # via xcrun ourselves.
+    set(IOS_SDK_ROOT "${CMAKE_OSX_SYSROOT}")
+    if(NOT IS_DIRECTORY "${IOS_SDK_ROOT}" AND IOS_SDK_ROOT MATCHES "^[A-Za-z0-9_-]+$")
+        # NO_CMAKE_FIND_ROOT_PATH: cross-configures restrict searches to the
+        # SDK root, but xcrun is a host tool.
+        find_program(XCRUN_EXECUTABLE xcrun NO_CMAKE_FIND_ROOT_PATH)
+        if(XCRUN_EXECUTABLE)
+            execute_process(
+                COMMAND "${XCRUN_EXECUTABLE}" --sdk "${IOS_SDK_ROOT}" --show-sdk-path
+                OUTPUT_VARIABLE IOS_SDK_ROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                RESULT_VARIABLE _xcrun_rc)
+            if(NOT _xcrun_rc EQUAL 0 OR NOT IS_DIRECTORY "${IOS_SDK_ROOT}")
+                unset(IOS_SDK_ROOT)
+            endif()
+        endif()
+    endif()
+    if(NOT IOS_SDK_ROOT)
+        message(FATAL_ERROR "iOS build: CMAKE_OSX_SYSROOT is empty. Pass -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphoneos --show-sdk-path)")
+    endif()
+    get_filename_component(IOS_SDK_ROOT "${IOS_SDK_ROOT}" ABSOLUTE)
+    if(NOT IS_DIRECTORY "${IOS_SDK_ROOT}")
+        message(FATAL_ERROR "iOS build: could not resolve the iOS SDK (CMAKE_OSX_SYSROOT='${CMAKE_OSX_SYSROOT}'). Pass -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphoneos --show-sdk-path)")
+    endif()
+    message(STATUS "iOS SDK: ${IOS_SDK_ROOT}")
+    set(IOS_SDK_CURL_TBD "${IOS_SDK_ROOT}/usr/lib/libcurl.tbd")
+    set(IOS_SDK_ZLIB_TBD "${IOS_SDK_ROOT}/usr/lib/libz.tbd")
+    foreach(_tbd ${IOS_SDK_CURL_TBD} ${IOS_SDK_ZLIB_TBD})
+        if(NOT EXISTS "${_tbd}")
+            message(FATAL_ERROR "iOS build: ${_tbd} not found. Is CMAKE_OSX_SYSROOT an iPhoneOS SDK? (current: ${IOS_SDK_ROOT})")
+        endif()
+    endforeach()
+
+    add_library(CURL::libcurl INTERFACE IMPORTED)
+    set_target_properties(CURL::libcurl PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${IOS_SDK_ROOT}/usr/include"
+        INTERFACE_LINK_LIBRARIES "${IOS_SDK_CURL_TBD}")
+    add_library(ZLIB::ZLIB INTERFACE IMPORTED)
+    set_target_properties(ZLIB::ZLIB PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${IOS_SDK_ROOT}/usr/include"
+        INTERFACE_LINK_LIBRARIES "${IOS_SDK_ZLIB_TBD}")
     add_library(OpenSSL::SSL INTERFACE IMPORTED)
     add_library(OpenSSL::Crypto INTERFACE IMPORTED)
 else()
