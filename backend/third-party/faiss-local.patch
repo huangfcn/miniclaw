@@ -77,3 +77,27 @@ index 54cb7945f..1ad6c3a6c 100644
  
  #include <gtest/gtest.h>
  
+diff --git a/faiss/CMakeLists.txt b/faiss/CMakeLists.txt
+index a890a46..f87d003 100644
+--- a/faiss/CMakeLists.txt
++++ b/faiss/CMakeLists.txt
+@@ -294,10 +294,15 @@ target_compile_definitions(faiss PRIVATE FINTEGER=int)
+ target_compile_definitions(faiss_avx2 PRIVATE FINTEGER=int)
+ target_compile_definitions(faiss_avx512 PRIVATE FINTEGER=int)
+ 
+-find_package(OpenMP REQUIRED)
+-target_link_libraries(faiss PRIVATE OpenMP::OpenMP_CXX)
+-target_link_libraries(faiss_avx2 PRIVATE OpenMP::OpenMP_CXX)
+-target_link_libraries(faiss_avx512 PRIVATE OpenMP::OpenMP_CXX)
++# OpenMP is optional: platforms without an OpenMP runtime (e.g. iOS) can pass
++# -DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE and provide a stub omp.h on the
++# include path; #pragma omp lines then compile to plain sequential loops.
++find_package(OpenMP)
++if(OPENMP_FOUND)
++  target_link_libraries(faiss PRIVATE OpenMP::OpenMP_CXX)
++  target_link_libraries(faiss_avx2 PRIVATE OpenMP::OpenMP_CXX)
++  target_link_libraries(faiss_avx512 PRIVATE OpenMP::OpenMP_CXX)
++endif()
+ 
+ find_package(MKL)
+ if(MKL_FOUND)

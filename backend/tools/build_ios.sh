@@ -4,12 +4,22 @@
 # Produces libminiclaw_core.dylib in build-ios/, ready to embed into the
 # Tauri Xcode project (see MOBILE.md).
 #
-# Prereqs: Xcode command line tools, CMake >= 3.20, and iOS builds of the
-# third-party deps (faiss, libuv, openssl, zlib, openblas, yaml-cpp,
-# simdjson, usockets/uWebSockets). The Android dep script is the template;
-# build the same set for arm64-apple-ios and make them discoverable via the
-# usual CMake variables (OpenSSL_ROOT_DIR, CURL_INCLUDE_DIR, etc.) or by
-# passing -D<VAR> below.
+# What comes from where:
+#   faiss, libuv, uSockets/uWebSockets, yaml-cpp, simdjson, fiber  <- built
+#     from source here (FetchContent) for arm64-apple-ios
+#   curl, zlib, Accelerate (BLAS/LAPACK)                           <- iOS SDK
+#   OpenSSL                                                        <- not needed
+#     (libcurl on iOS uses SecureTransport; uSockets is LIBUS_NO_SSL)
+#   OpenMP                                                         <- not needed:
+#     faiss is patched to treat it as optional (faiss-local.patch)
+#     and gets a single-threaded stub omp.h (third-party/omp-stub);
+#     #pragma omp lines compile to plain sequential loops
+#   Boost headers (header-only Boost.Fiber in fiber_pool.cpp)      <-
+#     Homebrew: brew install boost
+#   Memory index                                                   <- SQLite FTS5
+#     (-DUSE_SQLITE=ON below; no prebuilt Lucene++ exists for iOS)
+#
+# Prereqs: Xcode, CMake >= 3.20, git, `brew install boost`.
 
 set -e
 
@@ -22,6 +32,13 @@ ARCH="arm64"
 
 if ! command -v xcodebuild >/dev/null 2>&1; then
     echo "ERROR: Xcode is required (run this on macOS)."
+    exit 1
+fi
+
+# Preflight: boost headers (header-only Boost.Fiber)
+if [ ! -f "/opt/homebrew/opt/boost/include/boost/fiber/all.hpp" ]; then
+    echo "ERROR: Boost headers not found at /opt/homebrew/opt/boost."
+    echo "       Run: brew install boost"
     exit 1
 fi
 

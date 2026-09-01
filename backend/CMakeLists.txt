@@ -55,29 +55,48 @@ if(ANDROID)
         INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}"
         IMPORTED_LOCATION "${ZLIB_LIBRARY}"
     )
+elseif(IOS)
+    # curl and zlib ship in the iOS SDK (libcurl.tbd / libz.tbd). OpenSSL does
+    # not — and we never use it directly (libcurl on iOS does TLS via
+    # SecureTransport, uSockets is built with LIBUS_NO_SSL) — so provide no-op
+    # targets to keep the shared link lines uniform across platforms.
+    find_package(CURL REQUIRED)
+    find_package(ZLIB REQUIRED)
+    add_library(OpenSSL::SSL INTERFACE IMPORTED)
+    add_library(OpenSSL::Crypto INTERFACE IMPORTED)
 else()
     find_package(OpenSSL REQUIRED)
     find_package(CURL REQUIRED)
     find_package(ZLIB REQUIRED)
 endif()
 
-if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(IOS)
+    # iOS has no OpenMP runtime: it is not in the SDK, and Homebrew's libomp/
+    # llvm are macOS-only. faiss is patched (faiss-local.patch) to treat
+    # OpenMP as optional, so disable the finder and feed faiss a single-
+    # threaded stub omp.h (third-party/omp-stub) instead: every #pragma omp
+    # compiles to a plain sequential loop, which is fine at miniclaw's memory
+    # scale. The top-level find_package below is skipped for the same reason.
+    set(CMAKE_DISABLE_FIND_PACKAGE_OpenMP TRUE)
+elseif(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # AppleClang accepts -fopenmp but ships neither omp.h nor the runtime;
     # Homebrew's libomp (brew install libomp) provides both. It is keg-only,
-    # so it is NOT in AppleClang's default search path. FindOpenMP's AppleClang
-    # branch locates the runtime via find_library(HINTS <implicit link dirs>)
-    # and the header via find_path — both of which honor CMAKE_LIBRARY_PATH /
-    # CMAKE_PREFIX_PATH. Seed those (as cache vars so the faiss subproject,
-    # which calls find_package(OpenMP) itself, sees them too). Setting
-    # OpenMP_*_FLAGS beforehand has no effect, which is why faiss used to fail
-    # with "'omp.h' file not found".
+    # so it is NOT in AppleClang's default search path. FindOpenMP's
+    # AppleClang branch locates the runtime via find_library(HINTS <implicit
+    # link dirs>) and the header via find_path — both of which honor
+    # CMAKE_LIBRARY_PATH / CMAKE_PREFIX_PATH. Seed those (as cache vars so the
+    # faiss subproject, which calls find_package(OpenMP) itself, sees them
+    # too). Setting OpenMP_*_FLAGS beforehand has no effect, which is why
+    # faiss used to fail with "'omp.h' file not found".
     list(APPEND CMAKE_LIBRARY_PATH "/opt/homebrew/opt/libomp/lib")
     list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/libomp")
     set(CMAKE_LIBRARY_PATH "${CMAKE_LIBRARY_PATH}" CACHE PATH "Extra lib search paths" FORCE)
     set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" CACHE STRING "Extra prefix search paths" FORCE)
 endif()
 
-find_package(OpenMP REQUIRED)
+if(NOT CMAKE_DISABLE_FIND_PACKAGE_OpenMP)
+    find_package(OpenMP REQUIRED)
+endif()
 include(FetchContent)
 
 
@@ -107,9 +126,16 @@ FetchContent_Declare(
   faiss
   GIT_REPOSITORY https://github.com/facebookresearch/faiss.git
   GIT_TAG        v1.8.0
-  PATCH_COMMAND bash -c "git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-msys2.patch 2>/dev/null && git apply ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-msys2.patch || echo 'Patch already applied or failed'"
+  PATCH_COMMAND bash -c "git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-local.patch 2>/dev/null && git apply ${CMAKE_CURRENT_SOURCE_DIR}/third-party/faiss-local.patch || echo 'Patch already applied or failed'"
 )
 FetchContent_MakeAvailable(faiss)
+
+if(IOS)
+    # faiss includes <omp.h> unconditionally; give it the single-threaded
+    # stub (see third-party/omp-stub/omp.h). PRIVATE so it never leaks into
+    # miniclaw_core's consumers.
+    target_include_directories(faiss SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third-party/omp-stub")
+endif()
 
 option(USE_SQLITE "Use SQLite FTS5 instead of LucenePlusPlus" OFF)
 if(USE_SQLITE)
@@ -147,10 +173,15 @@ endif()
 
 if(NOT ANDROID)
     if(APPLE)
+        # macOS desktop + iOS both get boost headers from Homebrew. On iOS the
+        # only consumer is header-only Boost.Fiber (fiber_pool.cpp); there is no
+        # Lucene++ (USE_SQLITE) so no boost libraries are linked for iOS.
         set(BOOST_INC "/opt/homebrew/opt/boost/include")
-        set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
         include_directories(${BOOST_INC})
-        link_directories(${BOOST_LIB})
+        if(NOT IOS)
+            set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
+            link_directories(${BOOST_LIB})
+        endif()
     else()
         if(WIN32)
             find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
@@ -300,12 +331,21 @@ function(miniclaw_apply_core_target tgt)
     )
     # Platform-specific search/BLAS libs
     if(APPLE)
-        target_link_libraries(${tgt} PRIVATE 
-            ${SEARCH_LIBS}
-            "-framework Accelerate"
-            "/opt/homebrew/opt/libomp/lib/libomp.dylib"
-        )
-        target_link_libraries(${tgt} PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+        if(IOS)
+            # No OpenMP runtime on iOS — faiss uses the single-threaded stub
+            # (see third-party/omp-stub), so there is no libomp to link.
+            target_link_libraries(${tgt} PRIVATE
+                ${SEARCH_LIBS}
+                "-framework Accelerate"
+            )
+        else()
+            target_link_libraries(${tgt} PRIVATE 
+                ${SEARCH_LIBS}
+                "-framework Accelerate"
+                "/opt/homebrew/opt/libomp/lib/libomp.dylib"
+            )
+            target_link_libraries(${tgt} PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+        endif()
     elseif(WIN32)
         target_link_libraries(${tgt} PRIVATE 
             ${SEARCH_LIBS}
@@ -399,6 +439,10 @@ if(MC_JNI)
     endif()
 endif()
 
+# ── Desktop test executables ────────────────────────────────────────────────
+# Host-only: they build plain executables that link boost/libomp from the
+# desktop toolchain, so they are skipped for Android/iOS device builds.
+if(NOT ANDROID AND NOT IOS)
 if(NOT WIN32)
     add_executable(test_fiber tests/test_fiber.cpp)
     target_include_directories(test_fiber PRIVATE 
@@ -708,6 +752,7 @@ if(WIN32)
     target_link_libraries(test_busybox PRIVATE ${PTHREAD_LIB} yaml-cpp simdjson)
     target_link_libraries(test_busybox PRIVATE ws2_32 iphlpapi userenv dbghelp)
     target_link_libraries(test_busybox PRIVATE ${Boost_LIBRARIES})
+endif()
 endif()
 
 

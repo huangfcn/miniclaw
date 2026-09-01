@@ -1,8 +1,9 @@
 build_output.txt
 
-# Android build output
+# Android/iOS build output
 build/
 build-android/
+build-ios/
 
 # libcurl-android
 third-party/libcurl-android/jni/openssl/
