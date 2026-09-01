@@ -62,13 +62,12 @@ else()
 endif()
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # Tell CMake where to find OpenMP for Apple Clang
-    set(OpenMP_C_FLAGS "-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include")
-    set(OpenMP_C_LIB_NAMES "omp")
-    set(OpenMP_omp_LIBRARY "/opt/homebrew/opt/libomp/lib/libomp.dylib")
-    
-    set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include")
-    set(OpenMP_CXX_LIB_NAMES "omp")
+    # AppleClang accepts -fopenmp but ships neither omp.h nor the runtime;
+    # Homebrew's libomp (brew install libomp) provides both. OPENMP_ROOT is
+    # the search prefix FindOpenMP actually honors — setting OpenMP_*_FLAGS
+    # beforehand has no effect, which is why faiss used to fail with
+    # "'omp.h' file not found".
+    set(OPENMP_ROOT "/opt/homebrew/opt/libomp" CACHE PATH "Homebrew libomp prefix")
 endif()
 
 find_package(OpenMP REQUIRED)
