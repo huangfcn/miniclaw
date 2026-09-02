@@ -252,16 +252,19 @@ The engine exposes a plain C ABI. The native SwiftUI app (`ios/`, see
 Clang module — no bridge library (unlike Android's JNI) and no webview:
 
 ```bash
-# 1. engine dylib for arm64-apple-ios
-bash backend/tools/build_ios.sh
+# 1. engine dylib — device (default) or simulator variant:
+bash backend/tools/build_ios.sh            # → backend/build-ios/           (arm64, iPhoneOS)
+bash backend/tools/build_ios.sh simulator  # → backend/build-ios-simulator/ (host arch, iphonesimulator)
 
 # 2. Xcode project (one-time: brew install xcodegen)
 cd ios && xcodegen generate && open Miniclaw.xcodeproj
 ```
 
-The app target links `backend/build-ios/libminiclaw_core.dylib` and a build
-phase embeds + signs it into the bundle (`@executable_path/Frameworks`
-runpath). It fails fast with a hint if the dylib is missing.
+The app target links the dylib matching the build platform
+(`build-ios$(EFFECTIVE_PLATFORM_NAME)`) and a build phase embeds + signs it
+into the bundle (`@executable_path/Frameworks` runpath). It fails fast with
+the right build command if the matching variant is missing — device runs
+need the `device` dylib, simulator runs need the `simulator` one.
 
 The script configures with `-DCMAKE_SYSTEM_NAME=iOS` (no toolchain file),
 `-DUSE_SQLITE=ON`, and Release, then builds `miniclaw_core`. Everything is

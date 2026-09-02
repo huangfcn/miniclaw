@@ -34,17 +34,18 @@ ios/
 # 0. one-time
 brew install xcodegen
 
-# 1. build the engine dylib (arm64, device SDK)
-bash backend/tools/build_ios.sh
-#    → backend/build-ios/libminiclaw_core.dylib
+# 1. build the engine dylib — pick the variant you run against (or both):
+bash backend/tools/build_ios.sh            # device    → backend/build-ios/libminiclaw_core.dylib (arm64)
+bash backend/tools/build_ios.sh simulator  # simulator → backend/build-ios-simulator/... (host arch)
 
 # 2. generate the Xcode project
 cd ios && xcodegen generate
 
 # 3. open, select your team (Signing & Capabilities), run on a device or
-#    simulator (arm64). The "Embed engine dylib" build phase copies and
-#    ad-hoc-signs the dylib into the app bundle; it fails fast with a hint
-#    if step 1 was skipped.
+#    simulator. The "Embed engine dylib" build phase picks the dylib that
+#    matches the build platform (EFFECTIVE_PLATFORM_NAME), copies and
+#    ad-hoc-signs it into the app bundle; it fails fast with the right
+#    build command if the matching variant is missing.
 open Miniclaw.xcodeproj
 ```
 
