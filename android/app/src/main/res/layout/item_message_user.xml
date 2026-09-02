@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- User row: bubble left, person avatar right (mirrored of agent row). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="top"
+    android:paddingTop="10dp">
+
+    <TextView
+        android:id="@+id/bubble"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="15sp"
+        android:lineSpacingExtra="3dp"
+        android:textColor="@color/text_primary"
+        android:textIsSelectable="true"
+        android:background="@drawable/bg_bubble_user"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp" />
+
+    <FrameLayout
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="12dp"
+        android:background="@drawable/bg_avatar_user">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="☻"
+            android:textSize="13sp"
+            android:textColor="@color/ok" />
+    </FrameLayout>
+</LinearLayout>

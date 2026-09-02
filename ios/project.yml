@@ -1,0 +1,68 @@
+# XcodeGen spec for the native miniclaw iOS app.
+#
+#   brew install xcodegen        # once
+#   cd ios && xcodegen generate  # produces Miniclaw.xcodeproj
+#
+# The app links the prebuilt backend/build-ios/libminiclaw_core.dylib
+# (build it first: bash backend/tools/build_ios.sh) and imports its C ABI
+# directly through FFI/module.modulemap — no bridge library, unlike Android's
+# JNI. See ios/README.md.
+
+name: Miniclaw
+
+options:
+  bundleIdPrefix: com.miniclaw
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1"          # iPhone only, like the Android app
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  Miniclaw:
+    type: application
+    platform: iOS
+    sources:
+      - path: Miniclaw
+        excludes:
+          - "Info.plist"
+    info:
+      path: Miniclaw/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.miniclaw.ios
+        # ── FFI: expose backend/src/mobile/agent_api.h as module MiniclawCore ─
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/../backend/src/mobile"
+        OTHER_SWIFT_FLAGS:
+          - "-Xcc"
+          - "-fmodule-map-file=$(SRCROOT)/Miniclaw/FFI/module.modulemap"
+        # ── Link + embed the prebuilt engine dylib ──────────────────────────
+        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/../backend/build-ios"
+        OTHER_LDFLAGS: ["-lminiclaw_core"]
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        ENABLE_PREVIEWS: NO
+    scripts:
+      - name: Embed engine dylib
+        script: |
+          ENGINE_DYLIB="${SRCROOT}/../backend/build-ios/libminiclaw_core.dylib"
+          if [ ! -f "$ENGINE_DYLIB" ]; then
+            echo "error: $ENGINE_DYLIB not found." >&2
+            echo "       Build it first:  bash backend/tools/build_ios.sh" >&2
+            exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          mkdir -p "$DEST"
+          rsync --delete --exclude '*.dSYM' -a "$ENGINE_DYLIB" "$DEST/"
+          # Ad-hoc sign (real signing happens in the app's CodeSign phase).
+          if [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+            /usr/bin/codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" \
+              --timestamp=none "$DEST/libminiclaw_core.dylib"
+          else
+            /usr/bin/codesign --force --sign - "$DEST/libminiclaw_core.dylib"
+          fi

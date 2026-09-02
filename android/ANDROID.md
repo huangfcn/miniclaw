@@ -81,14 +81,29 @@ adb logcat -s miniclaw
 
 ### Using the app
 
-- **Settings (⚙)** — four fields, all persisted in SharedPreferences and
-  pushed to the running engine via `setString()` (no restart needed):
+The app has three tabs (bottom bar) — same UX as the iOS app and the React
+frontend's mobile views:
+
+- **Chat** — streaming agent replies with avatars, a per-message activity
+  panel (`⚡ status`, `🔧 tool start`, `✓ tool end`), a Thinking… indicator,
+  and an empty-state hero. Fixed session id `main`.
+- **Status** — engine state card (running / starting / error with the
+  start error message), info rows (version, status, ticking uptime, model,
+  endpoint, workspace) and the privacy note.
+- **Settings** — structured LLM form plus a raw `config.yaml` editor:
   - `conversation.endpoint` — full URL, e.g. `http://10.0.2.2:9000/v1/chat/completions`
     from the emulator (see below) or `http://192.168.1.x:9000/...` from a LAN phone
   - `conversation.model`, `conversation.api_key`
   - `web.brave_api_key` — enables the `web_search` tool (Brave Search API).
     On mobile there are no environment variables, so the key **must** come
     from here (the desktop `BRAVE_API_KEY` env var still works on desktop).
+  - All four fields persist in SharedPreferences and are live-applied to the
+    running engine via `setString()` (no restart needed).
+  - The advanced editor loads/saves the full `config.yaml` through
+    `mc_get_config` / `mc_set_config`; the Save button highlights while the
+    text differs from the last loaded snapshot.
+- The engine starts on app start and stops when backgrounded (lifecycle,
+  same as iOS).
 - The manifest allows cleartext HTTP for local-network servers.
 
 ## Running in the Android Studio emulator

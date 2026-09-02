@@ -1,84 +1,123 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Root: tab content on top, bottom navigation below (React mobile parity). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/bg">
+    android:background="@color/page">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="10dp"
-        android:background="@color/header">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/app_name"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="starting…"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"
-            android:layout_marginEnd="12dp" />
-
-        <TextView
-            android:id="@+id/settings_btn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="⚙"
-            android:textColor="@color/text_primary"
-            android:textSize="20sp"
-            android:padding="6dp" />
-    </LinearLayout>
-
-    <ListView
-        android:id="@+id/messages"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:divider="@null"
-        android:paddingHorizontal="8dp"
-        android:stackFromBottom="true"
-        android:transcriptMode="normal" />
+        android:layout_weight="1">
+
+        <include layout="@layout/view_chat" />
+
+        <!-- NOTE: no android:id on these <include> tags — an include id would
+             override the included root's id (tab_status_root / tab_settings_root).
+             Initial visibility is set by selectTab(0) in onCreate. -->
+        <include layout="@layout/view_status" />
+
+        <include layout="@layout/view_settings" />
+    </FrameLayout>
+
+    <!-- hairline above the nav bar -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/hairline" />
 
     <LinearLayout
+        android:id="@+id/nav_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:padding="8dp"
-        android:background="@color/header">
+        android:background="@color/card"
+        android:paddingTop="6dp"
+        android:paddingBottom="10dp">
 
-        <EditText
-            android:id="@+id/input"
+        <LinearLayout
+            android:id="@+id/tab_chat"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="message"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_secondary"
-            android:background="@drawable/bubble_agent"
-            android:padding="10dp"
-            android:maxLines="4"
-            android:imeOptions="actionSend"
-            android:inputType="textMultiLine" />
+            android:orientation="vertical"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true">
 
-        <Button
-            android:id="@+id/send"
-            android:layout_width="wrap_content"
+            <TextView
+                android:id="@+id/tab_chat_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="💬"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/tab_chat_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Chat"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:textColor="@color/accent" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tab_status"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="Send" />
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tab_status_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📈"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/tab_status_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Status"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:textColor="@color/text_tertiary" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tab_settings"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tab_settings_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⚙️"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/tab_settings_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Settings"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:textColor="@color/text_tertiary" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
