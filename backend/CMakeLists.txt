@@ -92,10 +92,12 @@ elseif(IOS)
     if(NOT EXISTS "${IOS_SDK_ZLIB_TBD}")
         message(FATAL_ERROR "iOS build: ${IOS_SDK_ZLIB_TBD} not found. Is CMAKE_OSX_SYSROOT an iPhoneOS SDK? (current: ${IOS_SDK_ROOT})")
     endif()
-    add_library(ZLIB::ZLIB INTERFACE IMPORTED)
+    # UNKNOWN IMPORTED with a real LOCATION (not INTERFACE): curl's .pc-file
+    # generator reads the LOCATION property and warns on interface-only targets.
+    add_library(ZLIB::ZLIB UNKNOWN IMPORTED)
     set_target_properties(ZLIB::ZLIB PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${IOS_SDK_ROOT}/usr/include"
-        INTERFACE_LINK_LIBRARIES "${IOS_SDK_ZLIB_TBD}")
+        IMPORTED_LOCATION "${IOS_SDK_ZLIB_TBD}")
     add_library(OpenSSL::SSL INTERFACE IMPORTED)
     add_library(OpenSSL::Crypto INTERFACE IMPORTED)
 else()
@@ -303,6 +305,13 @@ if(IOS)
     # we never use cookies. Not available on iOS, so turn it off — its
     # find_package is REQUIRED when enabled.
     set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
+    # curl defaults to BUILD_SHARED_LIBS=ON (would produce a separate
+    # libcurl dylib + a curl::libcurl_shared alias); we want it static,
+    # linked into libminiclaw_core.dylib like every other dependency.
+    # No side effects elsewhere: this project never enables shared libs and
+    # all later targets specify their type explicitly.
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
     FetchContent_Declare(
       curl
       GIT_REPOSITORY https://github.com/curl/curl.git
