@@ -56,20 +56,14 @@ if(ANDROID)
         IMPORTED_LOCATION "${ZLIB_LIBRARY}"
     )
 elseif(IOS)
-    # curl and zlib ship in the iOS SDK as toolchain-provided .tbd stubs
-    # (usr/lib/libcurl.tbd, usr/lib/libz.tbd). Reference them directly instead
-    # of find_package(CURL/ZLIB): the Find modules' root-path-restricted search
-    # has been observed to miss these stubs in iOS cross-configures, and the
-    # SDK location is unambiguous. Headers resolve from <SDK>/usr/include via
-    # -isysroot; we still expose it explicitly on the targets below.
+    # The iOS SDK provides zlib (usr/lib/libz.tbd) but NOT curl, and it has no
+    # OpenSSL. So: build libcurl from source (FetchContent below) against
+    # SecureTransport — Apple's built-in TLS stack, the same one Apple's own
+    # libcurl uses — plus SDK zlib; no OpenSSL anywhere.
     #
-    # OpenSSL does not ship in the iOS SDK — and we never use it directly
-    # (libcurl on iOS does TLS via SecureTransport, uSockets is built with
-    # LIBUS_NO_SSL) — so provide no-op targets to keep the shared link lines
-    # uniform across platforms.
-    # CMake resolves the SDK (default: "iphoneos") to an absolute path during
-    # compiler detection; if it ever comes through as just a name, resolve it
-    # via xcrun ourselves.
+    # Resolve the SDK to an absolute path. CMake does this during compiler
+    # detection (default: "iphoneos"); if it ever comes through as just a
+    # name, resolve via xcrun ourselves.
     set(IOS_SDK_ROOT "${CMAKE_OSX_SYSROOT}")
     if(NOT IS_DIRECTORY "${IOS_SDK_ROOT}" AND IOS_SDK_ROOT MATCHES "^[A-Za-z0-9_-]+$")
         # NO_CMAKE_FIND_ROOT_PATH: cross-configures restrict searches to the
@@ -94,18 +88,10 @@ elseif(IOS)
         message(FATAL_ERROR "iOS build: could not resolve the iOS SDK (CMAKE_OSX_SYSROOT='${CMAKE_OSX_SYSROOT}'). Pass -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphoneos --show-sdk-path)")
     endif()
     message(STATUS "iOS SDK: ${IOS_SDK_ROOT}")
-    set(IOS_SDK_CURL_TBD "${IOS_SDK_ROOT}/usr/lib/libcurl.tbd")
     set(IOS_SDK_ZLIB_TBD "${IOS_SDK_ROOT}/usr/lib/libz.tbd")
-    foreach(_tbd ${IOS_SDK_CURL_TBD} ${IOS_SDK_ZLIB_TBD})
-        if(NOT EXISTS "${_tbd}")
-            message(FATAL_ERROR "iOS build: ${_tbd} not found. Is CMAKE_OSX_SYSROOT an iPhoneOS SDK? (current: ${IOS_SDK_ROOT})")
-        endif()
-    endforeach()
-
-    add_library(CURL::libcurl INTERFACE IMPORTED)
-    set_target_properties(CURL::libcurl PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "${IOS_SDK_ROOT}/usr/include"
-        INTERFACE_LINK_LIBRARIES "${IOS_SDK_CURL_TBD}")
+    if(NOT EXISTS "${IOS_SDK_ZLIB_TBD}")
+        message(FATAL_ERROR "iOS build: ${IOS_SDK_ZLIB_TBD} not found. Is CMAKE_OSX_SYSROOT an iPhoneOS SDK? (current: ${IOS_SDK_ROOT})")
+    endif()
     add_library(ZLIB::ZLIB INTERFACE IMPORTED)
     set_target_properties(ZLIB::ZLIB PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${IOS_SDK_ROOT}/usr/include"
@@ -305,6 +291,24 @@ FetchContent_Declare(
   GIT_TAG        v3.10.1
 )
 FetchContent_MakeAvailable(simdjson)
+
+# libcurl — iOS only: the iPhoneOS SDK does not ship curl (unlike macOS), so
+# build it from source, statically, against SecureTransport (Apple's built-in
+# TLS stack — no OpenSSL exists on iOS) and the SDK's zlib. The ZLIB::ZLIB /
+# OpenSSL::* targets were pre-created in the platform block above; CMake's
+# Find modules skip target creation when they already exist.
+if(IOS)
+    set(CURL_USE_SECTRANSP ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+      curl
+      GIT_REPOSITORY https://github.com/curl/curl.git
+      GIT_TAG        curl-8_12_1
+    )
+    FetchContent_MakeAvailable(curl)
+    # Canonical name used by the link lines below (curl's own alias is
+    # lowercase: curl::libcurl).
+    add_library(CURL::libcurl ALIAS curl::libcurl)
+endif()
 
 
 # Define uSockets as a static library

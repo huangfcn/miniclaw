@@ -227,16 +227,22 @@ The engine exposes a plain C ABI, so the iOS app links it through a thin
 Obj-C++ shim over `agent_api.h`, plus the core built for `arm64-apple-ios`:
 
 ```bash
-cd backend
-cmake -B build-ios \
-  -DCMAKE_TOOLCHAIN_FILE=$PWD/tools/ios-toolchain.cmake \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DUSE_SQLITE=ON
-cmake --build build-ios --target miniclaw_core -j8
+brew install boost        # header-only Boost.Fiber (one-time)
+bash backend/tools/build_ios.sh
 ```
 
-(See `tools/build_ios.sh` once added — the Android script is the template;
-iOS additionally needs faiss/openssl built for `arm64-apple-ios15.0`.)
+The script configures with `-DCMAKE_SYSTEM_NAME=iOS` (no toolchain file),
+`-DUSE_SQLITE=ON`, and Release, then builds `miniclaw_core`. Everything is
+resolved inside that single configure:
+
+- **faiss, libuv, uSockets/uWebSockets, yaml-cpp, simdjson, fiber** —
+  FetchContent, compiled for `arm64-apple-ios`.
+- **libcurl** — FetchContent, built statically against SecureTransport (the
+  iPhoneOS SDK does not ship curl; no OpenSSL exists on iOS).
+- **zlib, Accelerate (BLAS/LAPACK)** — from the iOS SDK.
+- **OpenMP** — not needed: faiss is patched (`faiss-local.patch`) to treat it
+  as optional and gets a single-threaded stub `omp.h` (`third-party/omp-stub`).
+- **Boost headers** — Homebrew (header-only Boost.Fiber; no dylibs linked).
 
 In Xcode: embed `libminiclaw_core.dylib` under **Embed & Sign**, ensure
 `Runpath Search Paths` include `@executable_path/Frameworks`, and use

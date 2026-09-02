@@ -7,9 +7,12 @@
 # What comes from where:
 #   faiss, libuv, uSockets/uWebSockets, yaml-cpp, simdjson, fiber  <- built
 #     from source here (FetchContent) for arm64-apple-ios
-#   curl, zlib, Accelerate (BLAS/LAPACK)                           <- iOS SDK
+#   curl                                                           <- built
+#     from source here (FetchContent): the iPhoneOS SDK does not
+#     ship libcurl; TLS via SecureTransport (Apple's stack)
+#   zlib, Accelerate (BLAS/LAPACK)                                 <- iOS SDK
 #   OpenSSL                                                        <- not needed
-#     (libcurl on iOS uses SecureTransport; uSockets is LIBUS_NO_SSL)
+#     (no OpenSSL on iOS; uSockets is LIBUS_NO_SSL)
 #   OpenMP                                                         <- not needed:
 #     faiss is patched to treat it as optional (faiss-local.patch)
 #     and gets a single-threaded stub omp.h (third-party/omp-stub);
