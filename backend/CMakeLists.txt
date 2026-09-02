@@ -208,22 +208,23 @@ endif()
 
 
 if(NOT ANDROID)
-    if(APPLE)
-        # macOS desktop + iOS both get boost headers from Homebrew. On iOS the
-        # only consumer is header-only Boost.Fiber (fiber_pool.cpp); there is no
-        # Lucene++ (USE_SQLITE) so no boost libraries are linked for iOS.
-        set(BOOST_INC "/opt/homebrew/opt/boost/include")
-        include_directories(${BOOST_INC})
-        if(NOT IOS)
+    if(WIN32)
+        # Windows fiber_pool uses Boost.Fiber (compiled libs); Lucene++ (when
+        # not USE_SQLITE) needs the rest.
+        find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
+        include_directories(${Boost_INCLUDE_DIRS})
+    elseif(NOT USE_SQLITE)
+        # Non-Windows: Boost is needed only by Lucene++. fiber_pool uses the
+        # vendored C fiber runtime everywhere except Windows, and with
+        # USE_SQLITE=ON there is no Lucene++ either — so e.g. iOS needs no
+        # Boost at all.
+        if(APPLE)
+            set(BOOST_INC "/opt/homebrew/opt/boost/include")
+            include_directories(${BOOST_INC})
             set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
             link_directories(${BOOST_LIB})
         endif()
-    else()
-        if(WIN32)
-            find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
-        else()
-            find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
-        endif()
+        find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
         include_directories(${Boost_INCLUDE_DIRS})
     endif()
 endif()
@@ -408,7 +409,9 @@ function(miniclaw_apply_core_target tgt)
                 "-framework Accelerate"
                 "/opt/homebrew/opt/libomp/lib/libomp.dylib"
             )
-            target_link_libraries(${tgt} PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+            if(NOT USE_SQLITE)
+                target_link_libraries(${tgt} PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
+            endif()
         endif()
     elseif(WIN32)
         target_link_libraries(${tgt} PRIVATE 

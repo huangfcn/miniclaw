@@ -17,12 +17,13 @@
 #     faiss is patched to treat it as optional (faiss-local.patch)
 #     and gets a single-threaded stub omp.h (third-party/omp-stub);
 #     #pragma omp lines compile to plain sequential loops
-#   Boost headers (header-only Boost.Fiber in fiber_pool.cpp)      <-
-#     Homebrew: brew install boost
 #   Memory index                                                   <- SQLite FTS5
-#     (-DUSE_SQLITE=ON below; no prebuilt Lucene++ exists for iOS)
+#     (FetchContent amalgamation, -DUSE_SQLITE=ON below). No Lucene++,
+#     and therefore no Boost at all on iOS: fiber_pool uses the vendored
+#     C fiber runtime everywhere except Windows (Boost.Fiber is a
+#     Windows-only dependency).
 #
-# Prereqs: Xcode, CMake >= 3.20, git, `brew install boost`.
+# Prereqs: Xcode, CMake >= 3.20, git.
 
 set -e
 
@@ -35,13 +36,6 @@ ARCH="arm64"
 
 if ! command -v xcodebuild >/dev/null 2>&1; then
     echo "ERROR: Xcode is required (run this on macOS)."
-    exit 1
-fi
-
-# Preflight: boost headers (header-only Boost.Fiber)
-if [ ! -f "/opt/homebrew/opt/boost/include/boost/fiber/all.hpp" ]; then
-    echo "ERROR: Boost headers not found at /opt/homebrew/opt/boost."
-    echo "       Run: brew install boost"
     exit 1
 fi
 

@@ -227,7 +227,6 @@ The engine exposes a plain C ABI, so the iOS app links it through a thin
 Obj-C++ shim over `agent_api.h`, plus the core built for `arm64-apple-ios`:
 
 ```bash
-brew install boost        # header-only Boost.Fiber (one-time)
 bash backend/tools/build_ios.sh
 ```
 
@@ -249,7 +248,13 @@ resolved inside that single configure:
 - **zlib, Accelerate (BLAS/LAPACK)** — from the iOS SDK.
 - **OpenMP** — not needed: faiss is patched (`faiss-local.patch`) to treat it
   as optional and gets a single-threaded stub `omp.h` (`third-party/omp-stub`).
-- **Boost headers** — Homebrew (header-only Boost.Fiber; no dylibs linked).
+- **Memory index** — SQLite FTS5 (`-DUSE_SQLITE=ON`), built from the
+  amalgamation via FetchContent. This also means **no Boost on iOS at all**:
+  Lucene++ (the only non-Windows Boost consumer) is gone, and fiber_pool uses
+  the vendored C fiber runtime outside Windows (Boost.Fiber there is a
+  Windows-only dependency).
+- **Boost** — not needed on iOS. (macOS desktop builds still need
+  `brew install boost` unless they also pass `-DUSE_SQLITE=ON`.)
 
 In Xcode: embed `libminiclaw_core.dylib` under **Embed & Sign**, ensure
 `Runpath Search Paths` include `@executable_path/Frameworks`, and use
