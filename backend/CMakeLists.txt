@@ -306,7 +306,7 @@ if(IOS)
     # find_package is REQUIRED when enabled.
     set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
     # curl defaults to BUILD_SHARED_LIBS=ON (would produce a separate
-    # libcurl dylib + a curl::libcurl_shared alias); we want it static,
+    # libcurl dylib + a CURL::libcurl_shared alias); we want it static,
     # linked into libminiclaw_core.dylib like every other dependency.
     # No side effects elsewhere: this project never enables shared libs and
     # all later targets specify their type explicitly.
@@ -317,10 +317,9 @@ if(IOS)
       GIT_REPOSITORY https://github.com/curl/curl.git
       GIT_TAG        curl-8_12_1
     )
+    # curl's project() is named CURL, so its own alias target is
+    # CURL::libcurl — exactly the name used by the link lines below.
     FetchContent_MakeAvailable(curl)
-    # Canonical name used by the link lines below (curl's own alias is
-    # lowercase: curl::libcurl).
-    add_library(CURL::libcurl ALIAS curl::libcurl)
 endif()
 
 
