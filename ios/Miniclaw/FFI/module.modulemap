@@ -1,12 +1,15 @@
 // MiniclawCore — C ABI of libminiclaw_core.dylib (backend/src/mobile/agent_api.h).
 //
-// The modulemap lives in the iOS target (it is platform-specific), so the
-// header is referenced by absolute path. It is registered via
-// -fmodule-map-file in the Xcode target settings (see project.yml).
+// The modulemap lives in the iOS target (it is platform-specific); clang
+// resolves a non-absolute header path relative to THIS file's directory,
+// so ../../../backend/src/mobile/agent_api.h reaches the repo's backend.
+// NOTE: no $(inherited) or other Xcode variables — clang does not expand
+// them in .modulemap files.
+// Registered via -fmodule-map-file in the Xcode target settings (project.yml).
 // No `link` directive here: the dylib is linked through
 // LIBRARY_SEARCH_PATHS + OTHER_LDFLAGS and embedded by the build script.
 
 module MiniclawCore {
-    header "$(inherited)/../../../backend/src/mobile/agent_api.h"
+    header "../../../backend/src/mobile/agent_api.h"
     export *
 }
