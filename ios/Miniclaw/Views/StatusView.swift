@@ -104,7 +104,7 @@ struct StatusView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .frame(width: 92, alignment: .leading)
             Text(value)
-                .font(.system(size: 13, design: mono ? .monospaced : .default, weight: .medium))
+                .font(.system(size: 13, weight: .medium, design: mono ? .monospaced : .default))
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(2)
                 .truncationMode(.middle)
