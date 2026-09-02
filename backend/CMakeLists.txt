@@ -299,6 +299,10 @@ FetchContent_MakeAvailable(simdjson)
 # Find modules skip target creation when they already exist.
 if(IOS)
     set(CURL_USE_SECTRANSP ON CACHE BOOL "" FORCE)
+    # libpsl (Public Suffix List) is only used for cookie-domain handling;
+    # we never use cookies. Not available on iOS, so turn it off — its
+    # find_package is REQUIRED when enabled.
+    set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(
       curl
       GIT_REPOSITORY https://github.com/curl/curl.git

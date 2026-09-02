@@ -239,6 +239,13 @@ resolved inside that single configure:
   FetchContent, compiled for `arm64-apple-ios`.
 - **libcurl** — FetchContent, built statically against SecureTransport (the
   iPhoneOS SDK does not ship curl; no OpenSSL exists on iOS).
+  `CURL_USE_LIBPSL=OFF`: libpsl only serves cookie-domain handling and we
+  never use cookies. Deliberate choice to keep libcurl (rather than wrapping
+  Network.framework/URLSession): the engine's async HTTP core is a
+  libcurl-multi ↔ libuv bridge (`CurlMultiManager`), and a native-framework
+  backend would mean a second threading domain + re-derived redirect/
+  timeout/streaming semantics on one platform only. Revisit if HTTP/3 or
+  TLS 1.3-only endpoints ever become a requirement.
 - **zlib, Accelerate (BLAS/LAPACK)** — from the iOS SDK.
 - **OpenMP** — not needed: faiss is patched (`faiss-local.patch`) to treat it
   as optional and gets a single-threaded stub `omp.h` (`third-party/omp-stub`).
