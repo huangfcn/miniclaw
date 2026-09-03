@@ -69,6 +69,7 @@ targets:
           fi
           DEST="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}"
           mkdir -p "$DEST"
+          echo "embedding: $ENGINE_DYLIB → $DEST"
           rsync --delete --exclude '*.dSYM' -a "$ENGINE_DYLIB" "$DEST/"
           # Ad-hoc sign (real signing happens in the app's CodeSign phase).
           if [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
@@ -77,3 +78,8 @@ targets:
           else
             /usr/bin/codesign --force --sign - "$DEST/libminiclaw_core.dylib"
           fi
+          if [ ! -f "$DEST/libminiclaw_core.dylib" ]; then
+            echo "error: embed failed — $DEST/libminiclaw_core.dylib missing after copy." >&2
+            exit 1
+          fi
+          echo "embedded + signed: $DEST/libminiclaw_core.dylib"
