@@ -30,14 +30,22 @@ else
 fi
 
 # Workaround: the bundled fmt 10.2.1 compile-time format-string check
-# (SPDLOG_FMT_STRING → FMT_STRING → consteval) fails on AppleClang 21+
+# (FMT_STRING → consteval basic_format_string ctor) fails on AppleClang 21+
 # (Xcode 26): "call to consteval function ... is not a constant expression".
-# Fall back to runtime format strings (identical diagnostics, checked at
-# runtime instead of compile time). Idempotent; runs even if spdlog was
-# already present from a pre-patch fetch.
+# The failure happens inside fmt itself (format-inl.h), so FMT_STRING must be
+# disabled at the fmt level, not just spdlog's wrapper. Making FMT_STRING an
+# identity macro restores runtime format checking (identical diagnostics,
+# checked at runtime instead of compile time). Idempotent; runs even if
+# spdlog was already present from a pre-patch fetch.
+SPDLOG_FMT_H="$EXTERNAL_DIR/spdlog/include/spdlog/fmt/bundled/format.h"
+if grep -q "define FMT_STRING(s) FMT_STRING_IMPL(s, fmt::detail::compile_string, )" "$SPDLOG_FMT_H" 2>/dev/null; then
+    echo "🩹 Patching bundled fmt: FMT_STRING → runtime (AppleClang 21+ workaround)"
+    sed -i.bak 's|#define FMT_STRING(s) FMT_STRING_IMPL(s, fmt::detail::compile_string, )|#define FMT_STRING(s) s|' "$SPDLOG_FMT_H"
+    rm -f "$SPDLOG_FMT_H.bak"
+fi
 SPDLOG_COMMON="$EXTERNAL_DIR/spdlog/include/spdlog/common.h"
 if grep -q "define SPDLOG_FMT_STRING(format_string) FMT_STRING(format_string)" "$SPDLOG_COMMON" 2>/dev/null; then
-    echo "🩹 Patching spdlog: disabling fmt compile-time format checking (AppleClang 21+ workaround)"
+    echo "🩹 Patching spdlog: SPDLOG_FMT_STRING → runtime (AppleClang 21+ workaround)"
     sed -i.bak 's|#define SPDLOG_FMT_STRING(format_string) FMT_STRING(format_string)|#define SPDLOG_FMT_STRING(format_string) format_string|' "$SPDLOG_COMMON"
     rm -f "$SPDLOG_COMMON.bak"
 fi
