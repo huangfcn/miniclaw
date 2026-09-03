@@ -4,7 +4,7 @@ build_output.txt
 build/
 build-android/
 build-ios/
-build-ios-simulator/
+build-ios-iphonesimulator/
 
 # libcurl-android
 third-party/libcurl-android/jni/openssl/

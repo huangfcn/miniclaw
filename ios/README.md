@@ -36,7 +36,7 @@ brew install xcodegen
 
 # 1. build the engine dylib — pick the variant you run against (or both):
 bash backend/tools/build_ios.sh            # device    → backend/build-ios/libminiclaw_core.dylib (arm64)
-bash backend/tools/build_ios.sh simulator  # simulator → backend/build-ios-simulator/... (host arch)
+bash backend/tools/build_ios.sh simulator  # simulator → backend/build-ios-iphonesimulator/... (host arch)
 
 # 2. generate the Xcode project
 cd ios && xcodegen generate

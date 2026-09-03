@@ -253,8 +253,8 @@ Clang module — no bridge library (unlike Android's JNI) and no webview:
 
 ```bash
 # 1. engine dylib — device (default) or simulator variant:
-bash backend/tools/build_ios.sh            # → backend/build-ios/           (arm64, iPhoneOS)
-bash backend/tools/build_ios.sh simulator  # → backend/build-ios-simulator/ (host arch, iphonesimulator)
+bash backend/tools/build_ios.sh            # → backend/build-ios/                (arm64, iPhoneOS)
+bash backend/tools/build_ios.sh simulator  # → backend/build-ios-iphonesimulator/ (host arch, iphonesimulator)
 
 # 2. Xcode project (one-time: brew install xcodegen)
 cd ios && xcodegen generate && open Miniclaw.xcodeproj

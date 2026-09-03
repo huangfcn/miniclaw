@@ -3,8 +3,8 @@
 #
 # Usage:  bash backend/tools/build_ios.sh [device|simulator]
 #
-#   device     (default) → build-ios/libminiclaw_core.dylib            (arm64, iPhoneOS SDK)
-#   simulator            → build-ios-simulator/libminiclaw_core.dylib  (host arch, iphonesimulator SDK)
+#   device     (default) → build-ios/libminiclaw_core.dylib                (arm64, iPhoneOS SDK)
+#   simulator            → build-ios-iphonesimulator/libminiclaw_core.dylib (host arch, iphonesimulator SDK)
 #
 # The Xcode app picks the right one automatically via EFFECTIVE_PLATFORM_NAME
 # (see ios/project.yml). Build whichever variant you run against — or both.
@@ -45,7 +45,7 @@ case "$TARGET" in
     ARCH="arm64"                        # all modern iPhones
     ;;
   simulator)
-    BUILD_DIR="$BACKEND_DIR/build-ios-simulator"
+    BUILD_DIR="$BACKEND_DIR/build-ios-iphonesimulator"
     SYSROOT_OPT="-DCMAKE_OSX_SYSROOT=iphonesimulator"
     ARCH="$(uname -m)"                  # arm64 on Apple Silicon, x86_64 on Intel
     ;;

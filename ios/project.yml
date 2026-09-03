@@ -43,8 +43,8 @@ targets:
           - "-Xcc"
           - "-fmodule-map-file=$(SRCROOT)/Miniclaw/FFI/module.modulemap"
         # ── Link + embed the prebuilt engine dylib ──────────────────────────
-        # EFFECTIVE_PLATFORM_NAME is "-ios" (device) or "-ios-simulator",
-        # which maps onto the build-ios / build-ios-simulator directories
+        # EFFECTIVE_PLATFORM_NAME is "-ios" (device) or "-iphonesimulator",
+        # which maps onto the build-ios / build-ios-iphonesimulator directories
         # produced by backend/tools/build_ios.sh [device|simulator].
         LIBRARY_SEARCH_PATHS: "$(SRCROOT)/../backend/build-ios$(EFFECTIVE_PLATFORM_NAME)"
         OTHER_LDFLAGS: ["-lminiclaw_core"]
@@ -54,13 +54,13 @@ targets:
       - name: Embed engine dylib
         script: |
           # Pick the dylib matching this build's platform:
-          #   device    → build-ios/            (EFFECTIVE_PLATFORM_NAME=-ios)
-          #   simulator → build-ios-simulator/  (EFFECTIVE_PLATFORM_NAME=-ios-simulator)
+          #   device    → build-ios/                 (EFFECTIVE_PLATFORM_NAME=-ios)
+          #   simulator → build-ios-iphonesimulator/ (EFFECTIVE_PLATFORM_NAME=-iphonesimulator)
           ENGINE_DIR="${SRCROOT}/../backend/build-ios${EFFECTIVE_PLATFORM_NAME}"
           ENGINE_DYLIB="${ENGINE_DIR}/libminiclaw_core.dylib"
           if [ ! -f "$ENGINE_DYLIB" ]; then
             case "${EFFECTIVE_PLATFORM_NAME}" in
-              *-simulator) HINT="bash backend/tools/build_ios.sh simulator" ;;
+              *simulator*) HINT="bash backend/tools/build_ios.sh simulator" ;;
               *)           HINT="bash backend/tools/build_ios.sh" ;;
             esac
             echo "error: $ENGINE_DYLIB not found (built for the wrong platform? Rebuild it.)" >&2
