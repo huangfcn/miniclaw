@@ -29,6 +29,19 @@ else
     echo "📦 spdlog already exists, skipping."
 fi
 
+# Workaround: the bundled fmt 10.2.1 compile-time format-string check
+# (SPDLOG_FMT_STRING → FMT_STRING → consteval) fails on AppleClang 21+
+# (Xcode 26): "call to consteval function ... is not a constant expression".
+# Fall back to runtime format strings (identical diagnostics, checked at
+# runtime instead of compile time). Idempotent; runs even if spdlog was
+# already present from a pre-patch fetch.
+SPDLOG_COMMON="$EXTERNAL_DIR/spdlog/include/spdlog/common.h"
+if grep -q "define SPDLOG_FMT_STRING(format_string) FMT_STRING(format_string)" "$SPDLOG_COMMON" 2>/dev/null; then
+    echo "🩹 Patching spdlog: disabling fmt compile-time format checking (AppleClang 21+ workaround)"
+    sed -i.bak 's|#define SPDLOG_FMT_STRING(format_string) FMT_STRING(format_string)|#define SPDLOG_FMT_STRING(format_string) format_string|' "$SPDLOG_COMMON"
+    rm -f "$SPDLOG_COMMON.bak"
+fi
+
 echo "✅ External dependencies settled in $EXTERNAL_DIR"
 echo "-----"
 
