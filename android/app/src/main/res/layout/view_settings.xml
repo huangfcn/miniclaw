@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings tab — port of frontend Settings.tsx / ios SettingsView.swift. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tab_settings_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="32dp">
+
+        <!-- header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/bg_icon_chip">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="⚙"
+                    android:textSize="16sp"
+                    android:textColor="@color/accent" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Configuration"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Refine your engine parameters and model endpoints."
+                    android:textSize="13sp"
+                    android:textColor="@color/text_secondary" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- structured LLM form -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginTop="20dp">
+
+            <TextView style="@style/SectionTitle" android:text="LLM SETTINGS" />
+
+            <TextView style="@style/FieldLabel" android:text="ENDPOINT" />
+            <EditText
+                android:id="@+id/set_endpoint"
+                style="@style/FieldInput"
+                android:hint="https://host/v1/chat/completions"
+                android:inputType="textUri|textNoSuggestions"
+                android:singleLine="true" />
+
+            <TextView style="@style/FieldLabel" android:text="MODEL" />
+            <EditText
+                android:id="@+id/set_model"
+                style="@style/FieldInput"
+                android:hint="gpt-4o-mini"
+                android:inputType="text|textNoSuggestions"
+                android:singleLine="true" />
+
+            <TextView style="@style/FieldLabel" android:text="API KEY" />
+            <EditText
+                android:id="@+id/set_api_key"
+                style="@style/FieldInput"
+                android:hint="api key"
+                android:inputType="textPassword|textNoSuggestions"
+                android:singleLine="true" />
+
+            <TextView style="@style/FieldLabel" android:text="BRAVE SEARCH KEY (OPTIONAL)" />
+            <EditText
+                android:id="@+id/set_brave_key"
+                style="@style/FieldInput"
+                android:hint="for web_search"
+                android:inputType="textPassword|textNoSuggestions"
+                android:singleLine="true" />
+
+            <TextView
+                android:id="@+id/save_llm"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:text="SAVE SETTINGS"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:textColor="@color/white"
+                android:background="@drawable/bg_send_btn"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+
+        <!-- advanced raw yaml -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginTop="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="ADVANCED — CONFIG.YAML"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.15"
+                    android:textColor="@color/text_tertiary" />
+
+                <TextView
+                    android:id="@+id/yaml_reload"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Reload"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/accent"
+                    android:padding="6dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <TextView
+                    android:id="@+id/yaml_save"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:text="Save"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_tertiary"
+                    android:padding="6dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/yaml_editor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="260dp"
+                android:layout_marginTop="12dp"
+                android:gravity="top|start"
+                android:fontFamily="monospace"
+                android:textSize="13sp"
+                android:textColor="@color/accent"
+                android:textColorHint="@color/text_tertiary"
+                android:background="@drawable/bg_field"
+                android:padding="8dp"
+                android:inputType="textMultiLine|textNoSuggestions" />
+
+            <TextView
+                android:id="@+id/yaml_notice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- info cards (frontend Settings.tsx parity) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginTop="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="ENGINE MODE"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.15"
+                    android:textColor="@color/text_tertiary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="in-process"
+                    android:fontFamily="monospace"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/accent" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textSize="12sp"
+                android:lineSpacingExtra="3dp"
+                android:textColor="@color/text_secondary"
+                android:text="The engine runs inside this app — no server process, no port. It starts on launch and stops when backgrounded." />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginTop="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="LLM PROVIDER"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.15"
+                    android:textColor="@color/text_tertiary" />
+
+                <TextView
+                    android:id="@+id/info_provider"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="default"
+                    android:fontFamily="monospace"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/accent" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textSize="12sp"
+                android:lineSpacingExtra="3dp"
+                android:textColor="@color/text_secondary"
+                android:text="Conversation quality uses your configured OpenAI-compatible endpoint. Background tasks can use local models via config.yaml." />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

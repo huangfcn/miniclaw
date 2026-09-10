@@ -1,185 +1,206 @@
-import { useRef, useEffect } from "react";
-import { Send, User, Bot, AlertTriangle, Loader2, PlusCircle } from "lucide-react";
-import axios from "axios";
-import { useAppContext, generateSessionId } from "../contexts/AppContext";
+import { useState, useRef, useEffect } from "react";
+import { Send, Bot, User, Wrench, AlertCircle, Loader2 } from "lucide-react";
+import { useAppContext } from "../contexts/AppContext";
+import { sendAgentMessage, isMobile, type AgentEvent } from "../lib/agentApi";
 
 interface Message {
+  id: string;
   role: "user" | "bot";
   content: string;
+  activities?: string[]; // tool / status lines shown under the message
+  isError?: boolean;
 }
 
 const Chat = ({ isBackendRunning }: { isBackendRunning: boolean }) => {
-  const { appState, setAppState } = useAppContext();
-  const { messages, input, isLoading } = appState.chat;
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { setAppState } = useAppContext();
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isSending, setIsSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isLoading]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!input.trim() || !isBackendRunning || isLoading) return;
+    if (!input.trim() || isSending) return;
 
-    const userMessage: Message = { role: "user", content: input };
-    setAppState(prev => ({
+    const userMessage = input.trim();
+    setInput("");
+    setIsSending(true);
+
+    const userMsgId = `msg-${Date.now()}`;
+    const botMsgId = `msg-${Date.now()}-bot`;
+    setMessages(prev => [
       ...prev,
-      chat: {
-        ...prev.chat,
-        messages: [...prev.chat.messages, userMessage],
-        input: "",
-        isLoading: true
-      }
-    }));
+      { id: userMsgId, role: "user", content: userMessage },
+      { id: botMsgId, role: "bot", content: "", activities: [] }
+    ]);
+
+    const onEvent = (e: AgentEvent) => {
+      setMessages(prev => {
+        const next = [...prev];
+        const i = next.findIndex(m => m.id === botMsgId);
+        if (i === -1) return prev;
+        const msg = { ...next[i], activities: [...(next[i].activities ?? [])] };
+        switch (e.type) {
+          case "token":
+            msg.content += e.content;
+            break;
+          case "status":
+            if (e.content) msg.activities.push(`⚡ ${e.content}`);
+            break;
+          case "tool_start":
+            msg.activities.push(`🔧 ${e.content}`);
+            break;
+          case "tool_end":
+            // Keep it quiet: tool output can be huge. Just mark completion.
+            msg.activities.push(`✓ ${e.content.split("\n")[0].slice(0, 80)}`);
+            break;
+          case "error":
+            msg.isError = true;
+            if (e.content && !msg.content) msg.content = e.content;
+            else if (e.content) msg.activities.push(`⚠ ${e.content}`);
+            break;
+          case "done":
+            break;
+        }
+        next[i] = msg;
+        return next;
+      });
+    };
 
     try {
-      const response = await axios.post("http://localhost:9000/api/chat", {
-        message: input,
-        session_id: appState.chat.sessionId,
-        model: "miniclaw"
-      }, {
-        responseType: 'text',
-        onDownloadProgress: (_progressEvent) => {}
+      await sendAgentMessage("main", userMessage, onEvent);
+    } catch (err) {
+      setMessages(prev => {
+        const next = [...prev];
+        const i = next.findIndex(m => m.id === botMsgId);
+        if (i !== -1) {
+          next[i] = { ...next[i], isError: true, content: `Connection error: ${err}` };
+        }
+        return next;
       });
-
-      const dataStr = response.data;
-      const botMessage: Message = { role: "bot", content: "" };
-
-      const lines = dataStr.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const json = JSON.parse(line.substring(6));
-            if (json.type === 'token') {
-              botMessage.content += json.content;
-            }
-          } catch (e) { /* ignore partial/empty */ }
-        }
-      }
-
-      if (botMessage.content) {
-        setAppState(prev => ({
-          ...prev,
-          chat: {
-            ...prev.chat,
-            messages: [...prev.chat.messages, botMessage]
-          }
-        }));
-      } else {
-        setAppState(prev => ({
-          ...prev,
-          chat: {
-            ...prev.chat,
-            messages: [...prev.chat.messages, { role: "bot", content: "Error: No response content." }]
-          }
-        }));
-      }
-    } catch (error) {
-      console.error("Chat error:", error);
-      setAppState(prev => ({
-        ...prev,
-        chat: {
-          ...prev.chat,
-          messages: [...prev.chat.messages, { role: "bot", content: "Error: Failed to connect to the backend engine." }]
-        }
-      }));
     } finally {
+      setIsSending(false);
       setAppState(prev => ({
         ...prev,
         chat: {
           ...prev.chat,
-          isLoading: false
+          lastMessage: userMessage,
+          lastResponse: "", // streamed into messages directly
+          lastError: null,
+          timestamp: new Date().toISOString()
         }
       }));
     }
   };
 
-  const handleNewChat = () => {
-    setAppState(prev => ({
-      ...prev,
-      chat: {
-        ...prev.chat,
-        messages: [],
-        input: "",
-        sessionId: generateSessionId(),
-        isLoading: false
-      }
-    }));
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-black/20 backdrop-blur-xl">
-      <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
-        {!isBackendRunning && (
-          <div className="max-w-md mx-auto mt-20 p-6 bg-rose-500/10 border border-rose-500/20 rounded-xl text-center space-y-3">
-            <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto" />
-            <h3 className="text-xl font-bold text-rose-500">Engine Offline</h3>
-            <p className="text-sm text-rose-300">The miniclaw core is currently inactive. Head to the Monitoring tab to launch it.</p>
+    <div className="flex-1 flex flex-col bg-[#0b0b0b] relative overflow-hidden">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24 md:pb-8">
+        {messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-gray-700 space-y-4 select-none">
+            <div className="p-5 bg-gray-900/50 rounded-full border border-gray-800">
+              <Bot size={40} strokeWidth={1.5} />
+            </div>
+            <div className="text-center space-y-1">
+              <p className="font-bold text-gray-600 tracking-widest uppercase text-xs">Miniclaw Assistant</p>
+              <p className="text-sm font-medium max-w-xs mx-auto opacity-70">
+                {isBackendRunning
+                  ? "Ready to help. Ask me anything or give me a task."
+                  : isMobile
+                    ? "Starting up…"
+                    : "Engine offline. Launch it from the Monitoring tab."}
+              </p>
+            </div>
+          </div>
+        ) : (
+          messages.map((msg) => (
+            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-200`}>
+              {msg.role === 'bot' ? (
+                <div className="flex items-start space-x-3 max-w-[90%] md:max-w-[75%]">
+                  <div className={`p-2 rounded-xl border flex-shrink-0 mt-1 ${msg.isError ? "bg-rose-500/10 border-rose-500/20 text-rose-500" : "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"}`}>
+                    {msg.isError ? <AlertCircle size={18} /> : <Bot size={18} />}
+                  </div>
+                  <div className="space-y-2 min-w-0">
+                    {(msg.activities && msg.activities.length > 0) && (
+                      <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-3 space-y-1 max-h-32 overflow-y-auto">
+                        {msg.activities.map((a, i) => (
+                          <div key={i} className="text-[11px] font-mono text-gray-500 flex items-center space-x-1.5 truncate">
+                            <Wrench size={10} className="flex-shrink-0 opacity-50" />
+                            <span className="truncate">{a}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {msg.content && (
+                      <div className={`p-4 rounded-2xl text-sm font-medium leading-relaxed whitespace-pre-wrap break-words ${
+                        msg.isError
+                          ? "bg-rose-500/10 border border-rose-500/20 text-rose-300"
+                          : "bg-[#141414] border border-gray-800 text-gray-200"
+                      }`}>
+                        {msg.content}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start space-x-3 max-w-[90%] md:max-w-[75%] flex-row-reverse">
+                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex-shrink-0 mt-1">
+                    <User size={18} />
+                  </div>
+                  <div className="p-4 rounded-2xl bg-[#1a1a1a] border border-gray-800 text-sm font-medium leading-relaxed whitespace-pre-wrap break-words text-gray-200">
+                    {msg.content}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+
+        {isSending && (
+          <div className="flex items-center space-x-3 text-gray-500 text-xs font-bold uppercase tracking-widest pl-1">
+            <Loader2 size={14} className="animate-spin" />
+            <span>Thinking…</span>
           </div>
         )}
 
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm flex space-x-3 ${msg.role === "user"
-                ? "bg-indigo-600 text-white"
-                : "bg-gray-800 text-gray-100 border border-gray-700/50"
-              }`}>
-              {msg.role === "bot" && <Bot className="w-5 h-5 mt-1 shrink-0 text-indigo-400" />}
-              <div className="whitespace-pre-wrap leading-relaxed text-[15px]">{msg.content}</div>
-              {msg.role === "user" && <User className="w-5 h-5 mt-1 shrink-0 opacity-80" />}
-            </div>
-          </div>
-        ))}
-
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-800/80 border border-gray-700/50 rounded-2xl p-4 flex items-center space-x-3 text-indigo-400">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span className="text-sm font-medium tracking-wide">miniclaw is thinking...</span>
-            </div>
-          </div>
-        )}
+        <div ref={messagesEndRef} />
       </div>
 
-      {isBackendRunning && (
-        <div className="px-6 py-2 flex justify-end">
-          <button
-            onClick={handleNewChat}
-            disabled={isLoading}
-            className="flex items-center space-x-2 text-[10px] font-bold uppercase tracking-widest text-indigo-400 hover:text-indigo-300 transition-colors py-1 px-3 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-full border border-indigo-500/10"
-          >
-            <PlusCircle size={12} />
-            <span>New Chat</span>
-          </button>
-        </div>
-      )}
-
-      <div className="p-6 border-t border-gray-800 bg-black/40 shadow-inner">
-        <div className="relative max-w-4xl mx-auto group">
-          <input
-            type="text"
-            className={`w-full bg-gray-900 border ${isBackendRunning ? 'border-gray-700 focus:border-indigo-500' : 'border-rose-900/50 cursor-not-allowed opacity-50'} rounded-2xl px-5 py-4 pr-14 text-white placeholder-gray-500 outline-none transition-all shadow-lg group-hover:shadow-indigo-500/5 focus:shadow-indigo-500/10`}
-            placeholder={isBackendRunning ? "Message miniclaw..." : "Backend offline..."}
+      {/* Input area */}
+      <div className={`absolute bottom-0 left-0 right-0 p-3 md:p-6 bg-gradient-to-t from-[#0b0b0b] via-[#0b0b0b]/95 to-transparent ${isMobile ? "pb-[calc(0.75rem+env(safe-area-inset-bottom))]" : ""}`}>
+        <div className="flex items-end space-x-2 md:space-x-3 bg-[#141414] border border-gray-800 rounded-2xl p-2 focus-within:border-indigo-500/50 transition-colors shadow-2xl">
+          <textarea
             value={input}
-            disabled={!isBackendRunning || isLoading}
-            onChange={(e) => setAppState(prev => ({ ...prev, chat: { ...prev.chat, input: e.target.value } }))}
-            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message…"
+            rows={1}
+            className="flex-1 bg-transparent resize-none outline-none text-sm font-medium p-3 text-gray-200 placeholder-gray-600 max-h-32"
+            style={{ minHeight: "2.5rem" }}
           />
           <button
-            disabled={!isBackendRunning || isLoading || !input.trim()}
             onClick={handleSendMessage}
-            className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all ${input.trim() && isBackendRunning && !isLoading
-                ? "bg-indigo-600 text-white hover:bg-indigo-500 shadow-md"
-                : "text-gray-500 bg-transparent"
-              }`}
+            disabled={!input.trim() || isSending}
+            className={`p-3 rounded-xl transition-all flex-shrink-0 ${
+              input.trim() && !isSending
+                ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 active:scale-95"
+                : "bg-gray-800 text-gray-600 cursor-not-allowed"
+            }`}
           >
-            <Send size={18} strokeWidth={2.5} />
+            {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
         </div>
-        <p className="mt-3 text-center text-[10px] text-gray-500 uppercase tracking-[0.2em] font-bold">
-          LLM responses can be inaccurate. verify critical information.
-        </p>
       </div>
     </div>
   );

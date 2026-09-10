@@ -5,6 +5,14 @@ use std::sync::{Arc, Mutex};
 use std::fs;
 use std::path::PathBuf;
 
+// ── Mobile (Android / iOS) ────────────────────────────────────────────────
+// Tauri mobile cannot spawn sidecar processes, so the C++ engine is linked
+// in-process via libminiclaw_core (C ABI in backend/src/mobile/agent_api.h).
+#[cfg(any(target_os = "android", target_os = "ios"))]
+mod mobile_engine;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+use mobile_engine::MobileBackend;
+
 #[derive(Default)]
 struct BackendState {
     child: Arc<Mutex<Option<CommandChild>>>,
@@ -38,6 +46,9 @@ async fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result
     fs::create_dir_all(&miniclaw_path).map_err(|e| e.to_string())?;
 
     // Use sidecar API. Tauri automatically handles the target triple postfix.
+    // The desktop sidecar is `miniclaw` — a thin host that drives
+    // the engine through the same C ABI (mc_engine_*) as mobile, linking
+    // libminiclaw_core and serving the classic HTTP/SSE API on localhost:9000.
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
     let cmd = app.shell().sidecar("miniclaw")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?
@@ -132,6 +143,44 @@ fn get_backend_status(state: State<'_, BackendState>) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ── Mobile: embedded engine, no sidecar ────────────────────────────────
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let app = tauri::Builder::default()
+            .manage(MobileBackend::new())
+            .plugin(tauri_plugin_fs::init())
+            .invoke_handler(tauri::generate_handler![
+                mobile_engine::mobile_send_message,
+                mobile_engine::mobile_get_config,
+                mobile_engine::mobile_save_config,
+                mobile_engine::mobile_set_string,
+                mobile_engine::mobile_status
+            ])
+            .build(tauri::generate_context!())
+            .expect("error while building tauri application");
+
+        app.run(|handle, event| {
+            match event {
+                tauri::RunEvent::Ready => {
+                    let backend = handle.state::<MobileBackend>();
+                    if let Err(e) = backend.init(handle) {
+                        eprintln!("[mobile] engine init failed: {}", e);
+                    } else {
+                        println!("[mobile] engine ready");
+                    }
+                }
+                tauri::RunEvent::Exit => {
+                    // MobileBackend::drop() destroys the C++ engine.
+                    let backend = handle.state::<MobileBackend>();
+                    std::mem::drop(backend);
+                }
+                _ => {}
+            }
+        });
+        return;
+    }
+
+    // ── Desktop: sidecar process + localhost:9000 (unchanged) ─────────────
     let app = tauri::Builder::default()
         .manage(BackendState::default())
         .plugin(tauri_plugin_shell::init())

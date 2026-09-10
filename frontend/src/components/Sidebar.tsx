@@ -1,13 +1,15 @@
 import { MessageSquare, Settings as SettingsIcon, Activity } from "lucide-react";
 
+import type { Tab } from "./BottomNav";
+
 interface SidebarProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab: Tab;
+  setActiveTab: (tab: Tab) => void;
   isBackendRunning: boolean;
 }
 
 const Sidebar = ({ activeTab, setActiveTab, isBackendRunning }: SidebarProps) => {
-  const tabs = [
+  const tabs: { id: Tab; icon: typeof MessageSquare; label: string }[] = [
     { id: "chat", icon: MessageSquare, label: "Chat" },
     { id: "monitoring", icon: Activity, label: "Monitoring" },
     { id: "settings", icon: SettingsIcon, label: "Settings" },

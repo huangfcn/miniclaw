@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status tab — port of frontend Monitoring.tsx (mobile) / ios StatusView.swift. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tab_status_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="32dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Engine Status"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <!-- running / starting / error card (tint set programmatically) -->
+        <LinearLayout
+            android:id="@+id/status_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_status_warn"
+            android:padding="20dp"
+            android:layout_marginTop="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/status_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚙"
+                    android:textSize="18sp"
+                    android:textColor="@color/warn" />
+
+                <TextView
+                    android:id="@+id/status_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="Engine starting…"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/warn" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/status_sub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textSize="12sp"
+                android:lineSpacingExtra="3dp"
+                android:textColor="@color/text_secondary"
+                android:text="On Android the engine runs inside the app (no separate process). It starts automatically when the app launches and stops when the app is backgrounded." />
+        </LinearLayout>
+
+        <!-- engine details -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:layout_marginTop="16dp">
+
+            <include layout="@layout/status_row" android:id="@+id/row_version" />
+            <View style="@style/StatusDivider" />
+            <include layout="@layout/status_row" android:id="@+id/row_status" />
+            <View style="@style/StatusDivider" />
+            <include layout="@layout/status_row" android:id="@+id/row_uptime" />
+            <View style="@style/StatusDivider" />
+            <include layout="@layout/status_row" android:id="@+id/row_model" />
+            <View style="@style/StatusDivider" />
+            <include layout="@layout/status_row" android:id="@+id/row_endpoint" />
+            <View style="@style/StatusDivider" />
+            <include layout="@layout/status_row" android:id="@+id/row_workspace" />
+        </LinearLayout>
+
+        <!-- privacy card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="20dp"
+            android:layout_marginTop="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PRIVACY"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.15"
+                android:textColor="@color/text_tertiary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textSize="12sp"
+                android:lineSpacingExtra="3dp"
+                android:textColor="@color/text_secondary"
+                android:text="Background tasks (summarization, embeddings, memory distillation) can run on private local models pointed at in-app endpoints via Settings → config.yaml. Conversation quality uses your configured remote API." />
+        </LinearLayout>
+
+        <!-- start-error card -->
+        <LinearLayout
+            android:id="@+id/error_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="top"
+            android:visibility="gone"
+            android:background="@drawable/bg_status_error"
+            android:padding="16dp"
+            android:layout_marginTop="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⚠"
+                android:textSize="15sp"
+                android:textColor="@color/error" />
+
+            <TextView
+                android:id="@+id/error_msg"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="10dp"
+                android:textSize="13sp"
+                android:textColor="@color/error" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

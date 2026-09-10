@@ -60,6 +60,18 @@ else
     NCPU=4
 fi
 
-cmake --build . --parallel $NCPU
+cmake --build . --target miniclaw_core --target miniclaw_jni --parallel $NCPU
 
 echo "✅ Android build complete! Output in $BUILD_DIR"
+
+# Convenience: collect every shared library the .so files need at runtime
+# (our libs + NDK-provided libc++_shared.so / libomp.so) into the native
+# Android app so they are merged into the APK automatically.
+if [ -d "$BACKEND_DIR/../android" ]; then
+    "$SCRIPT_DIR/copy_deps_android.sh"
+fi
+
+# Also keep a full copy for the Tauri Android project if it exists (webview UX).
+if [ -d "$BACKEND_DIR/../frontend/src-tauri/android" ]; then
+    "$SCRIPT_DIR/copy_deps_android.sh" "$BACKEND_DIR/../frontend/src-tauri/android/app/src/main/jniLibs"
+fi
