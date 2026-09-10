@@ -2,6 +2,7 @@
 // WebSearchTool + WebFetchTool — with native function-calling schema
 
 #include "tool.hpp"
+#include "../config.hpp"
 #include <string>
 #include <vector>
 #include <map>
@@ -67,10 +68,6 @@ inline std::string curl_fetch(const std::string& url, const std::vector<std::str
 
 class WebSearchTool : public Tool {
 public:
-    WebSearchTool() {
-        api_key_ = std::getenv("BRAVE_API_KEY") ? std::getenv("BRAVE_API_KEY") : "";
-    }
-
     std::string name() const override { return "web_search"; }
     std::string description() const override {
         return "Search the web using Brave Search API. Returns titles, URLs, and snippets.";
@@ -87,13 +84,17 @@ public:
     }
 
     std::string execute(const std::string& input) override {
-        if (api_key_.empty()) return "Error: BRAVE_API_KEY not configured";
+        // Resolved lazily (not in the constructor) so keys pushed at runtime
+        // via mc_set_string("web", "brave_api_key", ...) from the mobile UI
+        // take effect without an engine restart. Env var still works on desktop.
+        const std::string api_key = Config::instance().web_brave_api_key();
+        if (api_key.empty()) return "Error: BRAVE_API_KEY not configured";
 
         char* encoded = curl_easy_escape(nullptr, input.c_str(), input.length());
         std::string url = "https://api.search.brave.com/res/v1/web/search?q=" + std::string(encoded);
         curl_free(encoded);
 
-        std::string res = curl_fetch(url, {"X-Subscription-Token: " + api_key_});
+        std::string res = curl_fetch(url, {"X-Subscription-Token: " + api_key});
         if (res.find("Error:") == 0) return res;
 
         try {
@@ -125,9 +126,6 @@ public:
             return "Error: Exception during parsing search results";
         }
     }
-
-private:
-    std::string api_key_;
 };
 
 class WebFetchTool : public Tool {

@@ -75,7 +75,15 @@ public:
   std::string config_file_path() const { return actual_config_path_; }
 
   // Server
-  int server_port() const { return get("server", "port", 9000); }
+  int server_port() const {
+    // Env override (console server / desktop convenience; mobile has no env
+    // vars, so it always comes from config).
+    if (const char *s = std::getenv("MC_PORT")) {
+      int p = std::atoi(s);
+      if (p > 0 && p < 65536) return p;
+    }
+    return get("server", "port", 9000);
+  }
   int server_threads() const { return get("server", "threads", 4); }
 
   // Conversation LLM
@@ -217,6 +225,17 @@ public:
   }
   int embedding_dimension() const {
     return get<int>("embedding", "dimension", 1536);
+  }
+
+  // Web tools
+  std::string web_brave_api_key() const {
+    // Desktop convenience: env var wins. On mobile (Android/iOS) there are
+    // no environment variables, so the key comes from config — set at runtime
+    // via mc_set_string("web", "brave_api_key", ...) from the app UI.
+    const char *s = std::getenv("BRAVE_API_KEY");
+    if (s)
+      return s;
+    return get<std::string>("web", "brave_api_key", "");
   }
 
   // Logging

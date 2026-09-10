@@ -8,6 +8,7 @@
 #include <fstream>
 #include <chrono>
 #include <ctime>
+#include <cctype>
 #include <regex>
 #ifdef USE_SQLITE
 #include <sqlite3.h>
@@ -305,16 +306,54 @@ struct MemoryIndex::Impl {
 #ifdef USE_SQLITE
             if (db) {
                 const char* sql = "SELECT id, path, text, start_line, end_line, source FROM docs WHERE docs MATCH ? ORDER BY rank LIMIT ?;";
-                sqlite3_stmt* stmt;
-                if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-                    sqlite3_bind_text(stmt, 1, query.c_str(), -1, SQLITE_TRANSIENT);
+
+                // Raw agent queries can contain characters that are syntax in
+                // the FTS5 query language (unbalanced quotes, ':', '*', ...),
+                // which makes MATCH fail and would silently drop the whole
+                // keyword leg of the fusion. Try the raw expression first,
+                // then fall back to quoting every whitespace token as a plain
+                // string (space = AND in FTS5).
+                auto fts5_fallback_expr = [](const std::string& q) {
+                    std::string expr, token;
+                    auto flush = [&]() {
+                        if (token.empty()) return;
+                        if (!expr.empty()) expr += ' ';
+                        expr += '"';
+                        for (char c : token) {
+                            expr += c;
+                            if (c == '"') expr += '"';  // escape by doubling
+                        }
+                        expr += '"';
+                        token.clear();
+                    };
+                    for (char c : q) {
+                        if (std::isspace((unsigned char)c)) flush();
+                        else token += c;
+                    }
+                    flush();
+                    return expr;
+                };
+
+                bool got_rows = false;
+                for (int attempt = 0; attempt < 2 && !got_rows; ++attempt) {
+                    const std::string& match_expr =
+                        (attempt == 0) ? query : fts5_fallback_expr(query);
+                    if (match_expr.empty()) break;
+
+                    sqlite3_stmt* stmt = nullptr;
+                    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+                        spdlog::warn("FTS5 prepare failed: {}", sqlite3_errmsg(db));
+                        break;
+                    }
+                    sqlite3_bind_text(stmt, 1, match_expr.c_str(), -1, SQLITE_TRANSIENT);
                     sqlite3_bind_int(stmt, 2, top_k * 4);
-                    
+
                     int i = 0;
-                    while (sqlite3_step(stmt) == SQLITE_ROW) {
+                    int rc;
+                    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
                         std::string id = (const char*)sqlite3_column_text(stmt, 0);
                         text_scores[id] = 1.0f / (1.0f + (float)i++);
-                        
+
                         if (metadata.find(id) == metadata.end()) {
                             metadata[id] = {
                                 id,
@@ -328,6 +367,17 @@ struct MemoryIndex::Impl {
                         }
                     }
                     sqlite3_finalize(stmt);
+
+                    if (rc == SQLITE_DONE) {
+                        // Valid FTS5 expression — done (even with 0 matches).
+                        got_rows = true;
+                    } else if (attempt == 0) {
+                        // Syntax error on the raw query — retry quoted.
+                        spdlog::debug("FTS5 MATCH failed on raw query ({}), retrying with quoted tokens", sqlite3_errmsg(db));
+                    } else {
+                        spdlog::warn("FTS5 search failed: {}", sqlite3_errmsg(db));
+                        got_rows = true;
+                    }
                 }
             }
 #else

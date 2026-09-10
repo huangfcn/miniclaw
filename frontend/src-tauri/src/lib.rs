@@ -46,6 +46,9 @@ async fn start_backend(app: AppHandle, state: State<'_, BackendState>) -> Result
     fs::create_dir_all(&miniclaw_path).map_err(|e| e.to_string())?;
 
     // Use sidecar API. Tauri automatically handles the target triple postfix.
+    // The desktop sidecar is `miniclaw` — a thin host that drives
+    // the engine through the same C ABI (mc_engine_*) as mobile, linking
+    // libminiclaw_core and serving the classic HTTP/SSE API on localhost:9000.
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
     let cmd = app.shell().sidecar("miniclaw")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?

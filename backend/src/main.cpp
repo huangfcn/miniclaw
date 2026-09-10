@@ -1,185 +1,138 @@
-#include "agent.hpp"
-#include "agent/fiber_pool.hpp"
-#include "agent/cron_service.hpp"
+// ─────────────────────────────────────────────────────────────────────────────
+// miniclaw console server (desktop sidecar)
+//
+// Standalone console app that drives the engine through the *same* C ABI
+// (mc_engine_*, see src/mobile/agent_api.h) that Android/iOS use in-process.
+// It links libminiclaw_core — the shared library mobile embeds — and waits
+// on a port with the classic HTTP/SSE endpoints:
+//
+//   GET  /api/health            → "OK"
+//   POST /api/shutdown          → graceful shutdown
+//   POST /api/chat              → SSE stream of {type, content} events
+//   POST /v1/chat/completions   → OpenAI-compatible SSE stream
+//
+// The HTTP server itself lives inside libminiclaw_core (FiberPool); on
+// desktop builds the FiberNodes bind the port from config (`server.port`,
+// default 9000). This process is a thin host: create engine → wait → destroy.
+//
+// Usage:
+//   miniclaw [workspace_dir]
+//
+// Environment:
+//   WORKSPACE_DIR  workspace override (same as the old desktop binary)
+//   MC_PORT        port override (takes precedence over config server.port)
+// ─────────────────────────────────────────────────────────────────────────────
 
-#include <filesystem>
-namespace fs = std::filesystem;
-#include "agent/shutdown.hpp"
-#include <condition_variable>
-#include <csignal>
-#include <curl/curl.h>
-#include <fiber.hpp>
-#include <spdlog/spdlog.h>
-#include <thread>
-#include <uv.h>
-
-#include "agent/context.hpp"
-#include "config.hpp"
 #include <atomic>
 #include <chrono>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <unistd.h>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <iostream>
+#include <string>
 
-// (Moved to shutdown.cpp)
+#include "agent/shutdown.hpp"
+#include "mobile/agent_api.h"
 
-static std::atomic<long long> last_ctrl_c_timestamp{0};
+namespace fs = std::filesystem;
 
 #if defined(_WIN32)
 #include <windows.h>
-BOOL WINAPI console_handler(DWORD ctrl_type) {
-  if (ctrl_type == CTRL_C_EVENT) {
-    auto now = std::chrono::steady_clock::now();
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                  now.time_since_epoch())
-                  .count();
-    auto last = last_ctrl_c_timestamp.exchange(ms);
-
-    if (ms - last <= 1000 && last != 0) {
-      const char msg[] = "\nReceived second Ctrl-C within 1s, initiating "
-                         "graceful shutdown...\n";
-      [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
-      miniclaw_trigger_shutdown();
-      return TRUE;
-    } else {
-      const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit.\n";
-      [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
-      return TRUE;
-    }
+static void write_stderr(const char *msg) {
+  DWORD written = 0;
+  WriteFile(GetStdHandle(STD_ERROR_HANDLE), msg,
+            static_cast<DWORD>(std::strlen(msg)), &written, nullptr);
+}
+#else
+#include <unistd.h>
+static void write_stderr(const char *msg) {
+  const size_t len = std::strlen(msg);
+  ssize_t off = 0;
+  while (off < static_cast<ssize_t>(len)) {
+    ssize_t n = write(STDERR_FILENO, msg + off, len - off);
+    if (n <= 0) break;
+    off += n;
   }
-  return FALSE;
 }
 #endif
 
-static std::atomic<int> ctrl_c_count{0};
+static std::atomic<long long> last_ctrl_c_timestamp{0};
 
-void signal_handler(int signum) {
+// First Ctrl-C: graceful shutdown. Second within 1s: force exit.
+static void on_ctrl_c() {
   auto now = std::chrono::steady_clock::now();
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now.time_since_epoch())
-                .count();
+  auto ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          now.time_since_epoch())
+          .count();
   auto last = last_ctrl_c_timestamp.exchange(ms);
 
-  int count = ++ctrl_c_count;
-  if (ms - last > 1000) {
-    count = 1;
-    ctrl_c_count = 1;
-  }
-
-  if (count >= 3) {
-    const char msg[] = "\nThird Ctrl-C received. Force exiting...\n";
-    [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+  if (ms - last <= 1000 && last != 0) {
+    write_stderr("\nSecond Ctrl-C within 1s, force exiting...\n");
     _exit(1);
   }
-
-  if (count >= 2) {
-    const char msg[] =
-        "\nReceived second Ctrl-C within 1s, initiating graceful shutdown...\n";
-    [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
-    miniclaw_trigger_shutdown();
-  } else {
-    const char msg[] = "\nPress Ctrl-C again within 1s to gracefully exit (or "
-                       "3 times to force kill).\n";
-    [[maybe_unused]] auto _ = write(STDERR_FILENO, msg, sizeof(msg) - 1);
-  }
+  write_stderr("\nShutting down gracefully (Ctrl-C again within 1s to force "
+               "exit)...\n");
+  miniclaw_trigger_shutdown();
 }
 
-int main() {
-  // Load Configuration
-  Config::instance().load();
-  Config::instance().bootstrap_workspace();
+#if defined(_WIN32)
+static BOOL WINAPI console_handler(DWORD ctrl_type) {
+  if (ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_BREAK_EVENT) {
+    on_ctrl_c();
+    return TRUE;
+  }
+  return FALSE;
+}
+#else
+#include <csignal>
+static void signal_handler(int /*signum*/) { on_ctrl_c(); }
+#endif
 
-  // Configure multi-sink logger (Console + File)
-  auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-
-  std::string level_str = Config::instance().logging_level();
-  spdlog::level::level_enum log_level = spdlog::level::from_str(level_str);
-  console_sink->set_level(log_level);
-
-  std::vector<spdlog::sink_ptr> sinks;
-  sinks.push_back(console_sink);
-
-  if (Config::instance().logging_enabled()) {
-    std::string log_file = Config::instance().logging_file();
-    std::string workspace = Config::instance().memory_workspace();
-    std::string log_path = (fs::path(workspace) / log_file).string();
-
-    auto file_sink =
-        std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_path, false);
-    file_sink->set_level(log_level);
-    sinks.push_back(file_sink);
+int main(int argc, char **argv) {
+  // ── Workspace resolution (same precedence as the old desktop binary) ──
+  std::string workspace;
+  if (argc > 1 && argv[1][0]) {
+    workspace = argv[1];
+  } else if (const char *env_ws = std::getenv("WORKSPACE_DIR")) {
+    workspace = env_ws;
+  } else {
+    // Same resolution order as the Tauri host (get_miniclaw_path in lib.rs):
+    // USERPROFILE first on Windows, then HOME — so the sidecar always lands
+    // in the directory Tauri just created.
+#if defined(_WIN32)
+    const char *home = std::getenv("USERPROFILE");
+    if (!home) home = std::getenv("HOME");
+#else
+    const char *home = std::getenv("HOME");
+#endif
+    workspace = std::string(home ? home : ".") + "/.miniclaw";
   }
 
-  auto logger = std::make_shared<spdlog::logger>("multi_sink", sinks.begin(),
-                                                 sinks.end());
-  spdlog::set_default_logger(logger);
-  spdlog::set_level(log_level);
-  spdlog::flush_on(spdlog::level::debug);
+  // Port: the core reads `server.port` from config; MC_PORT env var
+  // overrides it (see Config::server_port()).
 
-  spdlog::info("Starting miniclaw Backend (C++) with uWebSockets");
-  spdlog::info("Config file: {}", Config::instance().config_file_path());
-  spdlog::info("Memory workspace: {}", Config::instance().memory_workspace());
-  spdlog::info("Skills path: {}", Config::instance().skills_path());
-  spdlog::info(
-      "Prompts path: {}",
-      (fs::path(Config::instance().memory_workspace()) / "prompts").string());
+  fs::create_directories(workspace);
 
-  // Log bootstrap files
-  for (const char *f : ContextBuilder::BOOTSTRAP_FILES) {
-    fs::path p = fs::path(Config::instance().memory_workspace()) / f;
-    if (fs::exists(p)) {
-      spdlog::info("Using bootstrap file: {}", fs::absolute(p).string());
-    } else {
-      spdlog::warn("Bootstrap file not found: {}", fs::absolute(p).string());
-    }
+  // ── Create the engine via the shared C ABI (same call as mobile) ──────
+  mc_engine *engine = mc_engine_create(workspace.c_str(), nullptr);
+  if (!engine) {
+    std::cerr << "miniclaw: engine init failed: " << mc_last_error()
+              << std::endl;
+    return 1;
   }
 
-  // List available skills
-  try {
-    std::string skills_path = Config::instance().skills_path();
-    if (std::filesystem::exists(skills_path) &&
-        std::filesystem::is_directory(skills_path)) {
-      std::vector<std::string> skill_list;
-      for (const auto &entry :
-           std::filesystem::directory_iterator(skills_path)) {
-        if (entry.is_directory()) {
-          skill_list.push_back(entry.path().filename().string());
-        }
-      }
-      if (!skill_list.empty()) {
-        std::string list_str;
-        for (size_t i = 0; i < skill_list.size(); ++i) {
-          list_str += skill_list[i] + (i == skill_list.size() - 1 ? "" : ", ");
-        }
-        spdlog::info("Available skills: [{}]", list_str);
-      } else {
-        spdlog::info("No skills found in {}", skills_path);
-      }
-    } else {
-      spdlog::warn("Skills directory not found: {}", skills_path);
-    }
-  } catch (const std::exception &e) {
-    spdlog::error("Error listing skills: {}", e.what());
-  }
+  // The engine already installed its spdlog logger; print a startup banner.
+  printf("miniclaw console server v%s\n", mc_version());
+  printf("  workspace: %s\n", fs::absolute(workspace).lexically_normal()
+                                   .string()
+                                   .c_str());
+  printf("  config:    %s/config.yaml\n", workspace.c_str());
+  printf("  http:      waiting on port (config server.port, default 9000; "
+         "override with MC_PORT)\n");
+  fflush(stdout);
 
-  FiberGlobalStartup();
-
-  static Agent global_agent;
-
-  // Initialize FiberPool with threads and the global agent from config
-  int threads = Config::instance().server_threads();
-  FiberPool::instance().init(threads, &global_agent);
-
-  init_spawn_system();
-
-  // Initialize and start CronService
-  CronService::instance().init(Config::instance().memory_workspace());
-  CronService::instance().start();
-
-  int port = Config::instance().server_port();
-  spdlog::info("Backend running on port {} (Non-blocking Fiber Nodes)", port);
-
-  // Register signal handler for Ctrl-C
+  // ── Signal handling ────────────────────────────────────────────────────
 #if defined(_WIN32)
   SetConsoleCtrlHandler(console_handler, TRUE);
 #else
@@ -187,17 +140,17 @@ int main() {
   sa.sa_handler = signal_handler;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = 0;
-  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGINT, &sa, nullptr);
 #endif
 
-  // Keep the main thread alive
+  // Block until shutdown is requested — either via Ctrl-C above or via the
+  // POST /api/shutdown HTTP endpoint (which calls miniclaw_trigger_shutdown
+  // inside the core).
   miniclaw_wait_for_shutdown();
 
-  spdlog::info("Initiating graceful shutdown...");
-  FiberPool::instance().stop(); // Stop the FiberPool
-  CronService::instance().stop(); // Stop the CronService
-  curl_global_cleanup(); // Cleanup libcurl
-
-  spdlog::info("Shutdown complete. Exiting.");
+  printf("\nminiclaw console server: shutting down...\n");
+  fflush(stdout);
+  mc_engine_destroy(engine);
+  printf("miniclaw console server: exit.\n");
   return 0;
 }
