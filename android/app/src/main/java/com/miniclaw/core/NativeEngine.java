@@ -92,6 +92,26 @@ public final class NativeEngine {
         return handle != 0 && nativeIsRunning(handle);
     }
 
+    /**
+     * Local MNN inference status as JSON:
+     * {@code {"llm":{"loaded":bool,"dir":"...","message":"..."},
+     * "embedding":{...}}}. Returns null if the engine is gone.
+     */
+    public String localStatus() {
+        requireAlive();
+        return nativeLocalStatus(handle);
+    }
+
+    /**
+     * Start loading a local model in the background. kind: "llm" or
+     * "embedding". @return true when the load started (or was already
+     * loaded); poll {@link #localStatus()} for progress.
+     */
+    public boolean localLoad(String kind) {
+        requireAlive();
+        return nativeLocalLoad(handle, kind) == 0;
+    }
+
     /** Shut down the engine and release native resources. Idempotent. */
     public void destroy() {
         if (handle != 0) {
@@ -118,4 +138,6 @@ public final class NativeEngine {
     private static native int nativeSetString(long handle, String section,
                                               String key, String value);
     private static native boolean nativeIsRunning(long handle);
+    private static native String nativeLocalStatus(long handle);
+    private static native int nativeLocalLoad(long handle, String kind);
 }

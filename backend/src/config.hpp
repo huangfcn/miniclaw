@@ -227,6 +227,16 @@ public:
     return get<int>("embedding", "dimension", 1536);
   }
 
+  // Local (on-device) models via MNN — see docs/LOCAL_MODELS.md.
+  // Directories are relative to the workspace unless absolute.
+  std::string local_llm_model_dir() const {
+    return get<std::string>("local", "llm_model_dir", "models/qwen3-1.7b");
+  }
+  std::string local_embedding_model_dir() const {
+    return get<std::string>("local", "embedding_model_dir",
+                            "models/bge-m3");
+  }
+
   // Web tools
   std::string web_brave_api_key() const {
     // Desktop convenience: env var wins. On mobile (Android/iOS) there are

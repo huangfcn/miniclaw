@@ -14,6 +14,7 @@
 
 #include "agent/loop.hpp"
 #include "agent/session.hpp"
+#include "local/mnn_inference.hpp"
 #include "tools/tool.hpp"
 #include "agent/curl_manager.hpp"
 #include "agent/fiber_pool.hpp"
@@ -212,15 +213,16 @@ struct ToolCallAccum {
 
 // ─── call_llm: sends messages + tools, parses streaming tool_calls ───────────
 
-std::vector<float> Agent::embed(const std::string &text) {
-  std::string provider = Config::instance().embedding_provider();
-  std::string model = Config::instance().embedding_model();
-  std::string endpoint = Config::instance().embedding_endpoint();
+namespace {
 
-  // Log the endpoint for debugging local providers
-  spdlog::debug("Embedding using provider: {}, model: {}, endpoint: {}",
-                provider, model, endpoint);
-
+// HTTP path of Agent::embed (OpenAI-compatible /v1/embeddings). Returns the
+// raw vector; MRL truncation + L2 normalization happen in Agent::embed.
+std::vector<float> embed_via_http(const std::string &text,
+                                  const std::string &model,
+                                  const std::string &endpoint,
+                                  const std::string &provider,
+                                  const std::string &api_key,
+                                  const std::string &base_url) {
   struct CallData {
     std::string buffer;
     fiber_t fiber;
@@ -233,6 +235,7 @@ std::vector<float> Agent::embed(const std::string &text) {
   data->fiber = fiber_ident();
   CURL *easy = curl_easy_init();
 
+
   // SAFETY: completion_cb is called by CurlMultiManager, which is thread_local
   // and attached to the owning FiberNode's loop. Thus fiber_resume runs on the correct thread.
   data->completion_cb = [data, easy](CURLcode) { fiber_resume(data->fiber); };
@@ -243,7 +246,7 @@ std::vector<float> Agent::embed(const std::string &text) {
   data->headers =
       curl_slist_append(data->headers, "Content-Type: application/json");
 
-  std::string effective_key = api_key_;
+  std::string effective_key = api_key;
   auto *fiber_tcb = fiber_ident();
   if (fiber_tcb) {
     auto *key_ptr =
@@ -253,23 +256,23 @@ std::vector<float> Agent::embed(const std::string &text) {
   }
 
   // Auth header only for OpenAI (or similar)
-  if (provider == "openai" || !api_key_.empty()) {
+  if (provider == "openai" || !api_key.empty()) {
     std::string auth = "Authorization: Bearer " + effective_key;
     data->headers = curl_slist_append(data->headers, auth.c_str());
   }
 
   std::string effective_endpoint = endpoint;
   if (effective_endpoint.empty()) {
-    // Build from api_base_ if no explicit endpoint passed
-    if (api_base_.find("http") == 0) {
-      effective_endpoint = api_base_;
+    // Build from the conversation base URL if no explicit endpoint passed
+    if (base_url.find("http") == 0) {
+      effective_endpoint = base_url;
       if (effective_endpoint.find("/v1/chat/completions") ==
               std::string::npos &&
           effective_endpoint.back() != '/') {
         effective_endpoint += "/v1/chat/completions";
       }
     } else {
-      effective_endpoint = "https://" + api_base_ + "/v1/chat/completions";
+      effective_endpoint = "https://" + base_url + "/v1/chat/completions";
     }
   }
 
@@ -312,28 +315,73 @@ std::vector<float> Agent::embed(const std::string &text) {
   } catch (...) {
   }
 
-  // 3. MRL Truncation & L2 Normalization
-  int target_dim = Config::instance().embedding_dimension();
-  if (data->embedding.size() > (size_t)target_dim) {
-    spdlog::debug("MRL Truncating embedding from {} to {}",
-                  data->embedding.size(), target_dim);
-    data->embedding.resize(target_dim);
-
-    double sum_sq = 0;
-    for (float v : data->embedding)
-      sum_sq += (double)v * v;
-    float norm = (float)std::sqrt(sum_sq);
-    if (norm > 1e-9f) {
-      for (float &v : data->embedding)
-        v /= norm;
-    }
-  }
-
+  // MRL truncation + L2 normalization are applied by Agent::embed, which
+  // handles both the HTTP and MNN providers uniformly.
   std::vector<float> result = data->embedding;
   curl_slist_free_all(data->headers);
   curl_easy_cleanup(easy);
   delete data;
   return result;
+}
+
+}  // namespace
+
+std::vector<float> Agent::embed(const std::string &text) {
+  std::string provider = Config::instance().embedding_provider();
+  std::string model = Config::instance().embedding_model();
+  std::string endpoint = Config::instance().embedding_endpoint();
+
+  // Log the endpoint for debugging local providers
+  spdlog::debug("Embedding using provider: {}, model: {}, endpoint: {}",
+                provider, model, endpoint);
+
+  std::vector<float> raw;
+  if (provider == "mnn") {
+    // Local BGE-M3 via MNN. Blocking inference runs on a worker thread;
+    // the completion is posted back to this fiber's owning loop and we
+    // suspend until it resumes us (same pattern as the curl path).
+    std::string err;
+    FiberNode *node = FiberNode::current();
+    fiber_t fiber = fiber_ident();
+    if (fiber && node) {
+      // Offload: blocking MNN work must not run on the libuv/fiber loop.
+      std::thread([text, &raw, &err, node, fiber]() {
+        raw = MnnInference::instance().embed_text(text, &err);
+        // Mutex-protected queue inside spawn_back_on_loop gives the
+        // happens-before edge for raw/err written above.
+        node->spawn_back_on_loop([fiber, &err]() {
+          if (!err.empty()) spdlog::error("MNN embed: {}", err);
+          fiber_resume(fiber);
+        });
+      }).detach();
+      fiber_suspend(0);
+    } else {
+      // Defensive: not on a fiber — run inline (blocks the caller).
+      raw = MnnInference::instance().embed_text(text, &err);
+    }
+  } else {
+    raw = embed_via_http(text, model, endpoint, provider, api_key_,
+                         api_base_);
+  }
+
+  // MRL Truncation & L2 Normalization (applies to both providers)
+  int target_dim = Config::instance().embedding_dimension();
+  if (raw.size() > (size_t)target_dim) {
+    spdlog::debug("MRL Truncating embedding from {} to {}",
+                  raw.size(), target_dim);
+    raw.resize(target_dim);
+
+    double sum_sq = 0;
+    for (float v : raw)
+      sum_sq += (double)v * v;
+    float norm = (float)std::sqrt(sum_sq);
+    if (norm > 1e-9f) {
+      for (float &v : raw)
+        v /= norm;
+    }
+  }
+
+  return raw;
 }
 
 LLMResponse Agent::call_llm(const std::vector<Message> &messages,
@@ -342,6 +390,43 @@ LLMResponse Agent::call_llm(const std::vector<Message> &messages,
                             const std::string &model,
                             const std::string &endpoint,
                             const std::string &provider) {
+  // ── Local MNN chat (e.g. Qwen3-1.7B) ────────────────────────────────────
+  // Blocking inference on a worker thread; completion is posted back to this
+  // fiber's owning loop (same pattern as the curl path). Token events are
+  // forwarded from the worker thread — the C ABI bridge marshals them.
+  if (provider == "mnn") {
+    std::string err;
+    LLMResponse resp;
+    FiberNode *node = FiberNode::current();
+    fiber_t fiber = fiber_ident();
+    if (fiber && node) {
+      // Offload: blocking MNN work must not run on the libuv/fiber loop.
+      std::thread([messages, on_event, &resp, &err, node, fiber]() {
+        resp = MnnInference::instance().chat(messages, on_event, &err);
+        // Mutex-protected queue inside spawn_back_on_loop gives the
+        // happens-before edge for resp/err written above.
+        node->spawn_back_on_loop([fiber, &err]() {
+          if (!err.empty()) spdlog::error("MNN chat: {}", err);
+          fiber_resume(fiber);
+        });
+      }).detach();
+      fiber_suspend(0);
+    } else {
+      // Defensive: not on a fiber — run inline (blocks the caller).
+      resp = MnnInference::instance().chat(messages, on_event, &err);
+    }
+
+    if (resp.content.empty() && !err.empty()) {
+      // Model missing / load failure — surface a useful message instead of
+      // an empty assistant turn.
+      std::string msg = "Local model error: " + err;
+      spdlog::error("MNN chat: {}", err);
+      on_event({"error", msg});
+      resp.content = msg;
+    }
+    return resp;
+  }
+
   // Per-call state shared between write callback and cleanup
   struct CallData {
     Agent *self;

@@ -30,6 +30,8 @@
 #include "agent/fiber_pool.hpp"
 #include "config.hpp"
 #include "engine_internal.h"
+#include "json_util.hpp"
+#include "local/mnn_inference.hpp"
 
 namespace {
 
@@ -578,6 +580,50 @@ int mc_set_string(mc_engine *engine, const char *section, const char *key,
 int mc_is_running(mc_engine *engine) {
   auto *e = eng(engine);
   return (e && e->running) ? 1 : 0;
+}
+
+char *mc_local_status(mc_engine *engine) {
+  auto *e = eng(engine);
+  if (!e) return nullptr;
+
+  auto j = [](const MnnInference::SlotStatus &s) {
+    std::ostringstream ss;
+    ss << "{\"loaded\":" << (s.loaded ? "true" : "false")
+       << ",\"dir\":\"" << json_util::escape(s.model_dir) << "\""
+       << ",\"message\":\"" << json_util::escape(s.message) << "\"}";
+    return ss.str();
+  };
+
+  auto llm = MnnInference::instance().llm_status();
+  auto emb = MnnInference::instance().embedding_status();
+  std::string out = "{\"llm\":" + j(llm) + ",\"embedding\":" + j(emb) + "}";
+  return strdup(out.c_str());
+}
+
+int mc_local_load(mc_engine *engine, const char *kind) {
+  auto *e = eng(engine);
+  if (!e || !kind) return -1;
+
+  bool is_llm = (std::string(kind) == "llm");
+  bool is_emb = (std::string(kind) == "embedding");
+  if (!is_llm && !is_emb) {
+    set_last_error("mc_local_load: unknown kind (expected \"llm\" or \"embedding\")");
+    return -1;
+  }
+
+  auto &mnn = MnnInference::instance();
+  auto status = is_llm ? mnn.llm_status() : mnn.embedding_status();
+  if (status.loaded) return 0;  // already loaded
+
+  // Load in the background: model loading can take tens of seconds.
+  std::thread([is_llm]() {
+    std::string err;
+    bool ok = is_llm ? MnnInference::instance().load_llm(&err)
+                     : MnnInference::instance().load_embedding(&err);
+    if (!ok) spdlog::error("mc_local_load({}): {}", is_llm ? "llm" : "embedding", err);
+  }).detach();
+
+  return 0;
 }
 
 const char *mc_last_error(void) { return last_error_storage().c_str(); }

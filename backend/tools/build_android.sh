@@ -40,6 +40,10 @@ echo "⚒️ Running build..."
 mkdir -p "$BUILD_DIR/fake_include/sys"
 touch "$BUILD_DIR/fake_include/sys/sysctl.h"
 
+# MNN local inference: ON by default (same as build_ios.sh); MC_USE_MNN=0 to
+# disable. Adds a few minutes to the first build (MNN compiles from source).
+MNN_FLAG="-DMC_USE_MNN=$([ "${MC_USE_MNN:-1}" = "0" ] && echo OFF || echo ON)"
+
 # We pass the fake include path to CMake via CFLAGS
 cmake -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
       -DANDROID_ABI="$ABI" \
@@ -47,6 +51,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
       -DANDROID_STL="c++_shared" \
       -DUSE_SQLITE=ON \
       -DCMAKE_BUILD_TYPE=Release \
+      $MNN_FLAG \
       -DCMAKE_C_FLAGS="-I$BUILD_DIR/fake_include" \
       -DCMAKE_CXX_FLAGS="-I$BUILD_DIR/fake_include" \
       ..

@@ -244,4 +244,24 @@ JNIEXPORT jboolean JNICALL Java_com_miniclaw_core_NativeEngine_nativeIsRunning(
   return mc_is_running(e) ? JNI_TRUE : JNI_FALSE;
 }
 
+// Local MNN inference: status JSON + background load trigger (see
+// agent_api.h — mc_local_status / mc_local_load).
+JNIEXPORT jstring JNICALL Java_com_miniclaw_core_NativeEngine_nativeLocalStatus(
+    JNIEnv *env, jclass, jlong handle) {
+  mc_engine *e = from_handle(handle);
+  if (!e) return nullptr;
+  char *s = mc_local_status(e);
+  jstring out = s ? env->NewStringUTF(s) : nullptr;
+  if (s) mc_free_string(s);
+  return out;
+}
+
+JNIEXPORT jint JNICALL Java_com_miniclaw_core_NativeEngine_nativeLocalLoad(
+    JNIEnv *env, jclass, jlong handle, jstring kind) {
+  mc_engine *e = from_handle(handle);
+  if (!e) return -1;
+  std::string k = jstr(env, kind);  // "llm" | "embedding"
+  return mc_local_load(e, k.c_str());
+}
+
 } // extern "C"

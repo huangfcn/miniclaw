@@ -12,8 +12,16 @@ struct ChatMessage: Identifiable, Equatable {
     var isError = false
 }
 
-/// App-wide observable state: engine lifecycle, chat stream, settings.
-/// Owns the EngineClient (like Android's MainActivity owning EngineClient).
+/// App-wide observable state: engine lifecycle, per-topic chat streams,
+/// settings. Owns the EngineClient (like Android's MainActivity owning
+/// EngineClient).
+///
+/// Topics: each Slack-style topic is one engine session (`Topic.id`). The
+/// engine serializes turns globally — at most one turn runs at a time and
+/// later sends are queued — so `pendingTopics` is a FIFO of sessions with
+/// in-flight turns; its first element is always the topic currently
+/// receiving events. Events carry no session id (C ABI), which is why the
+/// queue exists.
 ///
 /// Not @MainActor-annotated: the C event bridge assigns a plain closure to
 /// EngineClient.onEvent that calls apply(); under Swift 5 language mode a
@@ -30,9 +38,11 @@ final class AppState: ObservableObject {
     let version: String
     let workspaceDir: String
 
-    // ── chat ────────────────────────────────────────────────────────────────
-    @Published var messages: [ChatMessage] = []
-    @Published var isSending = false
+    // ── chat (per topic) ────────────────────────────────────────────────────
+    /// Messages keyed by topic id (= engine session id).
+    @Published var messagesByTopic: [String: [ChatMessage]] = [:]
+    /// FIFO of topics with in-flight turns; first = currently streaming.
+    @Published private(set) var pendingTopics: [String] = []
 
     // ── settings (persisted like Android's SharedPreferences) ──────────────
     @Published var endpoint: String { didSet { defaults.set(endpoint, forKey: "endpoint") } }
@@ -40,30 +50,39 @@ final class AppState: ObservableObject {
     @Published var apiKey: String   { didSet { defaults.set(apiKey, forKey: "api_key") } }
     @Published var braveKey: String { didSet { defaults.set(braveKey, forKey: "brave_api_key") } }
 
+    /// Route chat / embedding through the on-device MNN model instead of
+    /// the remote OpenAI-compatible provider (Models tab toggles).
+    @Published var localLLM: Bool {
+        didSet { applyLocalProvider(.llm, localLLM) }
+    }
+    @Published var localEmbedding: Bool {
+        didSet { applyLocalProvider(.embedding, localEmbedding) }
+    }
+
     /// Raw config.yaml for the advanced editor (Settings tab).
     @Published var yamlText: String = ""
     /// Snapshot of the last loaded/saved content; dirty = text != snapshot.
     @Published var yamlLoaded: String = ""
     @Published var saveNotice: String?
 
+    /// Local MNN model downloads + engine load status (Models tab).
+    let models: ModelStore
     private let client: EngineClient
     private let defaults = UserDefaults.standard
-    private var streamingIndex = -1   // agent bubble currently receiving events
 
     init() {
-        let dir = (FileManager.default.urls(for: .applicationSupportDirectory,
-                                            in: .userDomainMask).first?
-                   .appendingPathComponent("miniclaw", isDirectory: true))!
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        workspaceDir = dir.path
+        workspaceDir = MiniclawPaths.workspaceDir
 
         endpoint = defaults.string(forKey: "endpoint") ?? ""
         model    = defaults.string(forKey: "model") ?? ""
         apiKey   = defaults.string(forKey: "api_key") ?? ""
         braveKey = defaults.string(forKey: "brave_api_key") ?? ""
+        localLLM       = defaults.string(forKey: Self.localProviderKey(.llm)) == "mnn"
+        localEmbedding = defaults.string(forKey: Self.localProviderKey(.embedding)) == "mnn"
 
         client = EngineClient(workspaceDir: workspaceDir)
         version = EngineClient.version()
+        models = ModelStore(engine: client)
         client.onEvent = { [weak self] event in
             self?.apply(event)
         }
@@ -98,6 +117,7 @@ final class AppState: ObservableObject {
             readyAt = Date()
             statusText = "ready"
             applySavedSettings()
+            models.refreshStatus()
         }
     }
 
@@ -107,6 +127,9 @@ final class AppState: ObservableObject {
         startError = nil
         readyAt = nil
         statusText = "stopped"
+        // In-flight turns die with the engine; drop them so no topic shows
+        // a stale "thinking…" spinner after relaunch.
+        pendingTopics = []
     }
 
     private func applySavedSettings() {
@@ -114,6 +137,21 @@ final class AppState: ObservableObject {
         if !model.isEmpty    { client.setString(section: "conversation", key: "model", value: model) }
         if !apiKey.isEmpty   { client.setString(section: "conversation", key: "api_key", value: apiKey) }
         if !braveKey.isEmpty { client.setString(section: "web", key: "brave_api_key", value: braveKey) }
+        // Re-apply local provider toggles (didSet doesn't fire during init).
+        if localLLM       { applyLocalProvider(.llm, true) }
+        if localEmbedding { applyLocalProvider(.embedding, true) }
+    }
+
+    static func localProviderKey(_ kind: LocalModel.Kind) -> String {
+        "local_provider_\(kind.rawValue)"
+    }
+
+    /// Push a provider toggle to the running engine (didSet may fire before
+    /// the engine exists — setString is a safe no-op then; applySavedSettings
+    /// re-applies both toggles on next start).
+    private func applyLocalProvider(_ kind: LocalModel.Kind, _ enabled: Bool) {
+        let (section, key) = kind.providerSetting
+        client.setString(section: section, key: key, value: enabled ? "mnn" : "openai")
     }
 
     /// Persist + apply a structured setting immediately (Android dialog parity).
@@ -124,69 +162,94 @@ final class AppState: ObservableObject {
 
     // ── chat ────────────────────────────────────────────────────────────────
 
-    func send(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isSending, client.isReady else { return }
+    var isBusy: Bool { !pendingTopics.isEmpty }
 
-        messages.append(ChatMessage(role: .user, content: trimmed))
-        messages.append(ChatMessage(role: .agent))
-        streamingIndex = messages.count - 1
-        isSending = true
-        statusText = "thinking…"
-        client.send(sessionId: "main", message: trimmed)
+    /// Session files on disk (<workspace>/sessions/*.jsonl) — one per topic,
+    /// since each topic's id is used verbatim as the backend session key.
+    func sessionFiles() -> [String] {
+        let dir = (workspaceDir as NSString).appendingPathComponent("sessions")
+        guard let names = try? FileManager.default.contentsOfDirectory(
+            atPath: dir, includingPropertiesForKeys: nil) else { return [] }
+        return names.filter { $0.hasSuffix(".jsonl") }.sorted()
     }
 
-    /// Port of the onEvent switch in frontend/src/components/Chat.tsx.
+    /// Messages for one topic (empty array, never a nil lookup).
+    func messages(for topicID: String) -> [ChatMessage] {
+        messagesByTopic[topicID] ?? []
+    }
+
+    /// True while this topic has a turn in flight (streaming or queued).
+    func isStreaming(_ topicID: String) -> Bool {
+        pendingTopics.contains(topicID)
+    }
+
+    func send(_ text: String, to topicID: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isStreaming(topicID), client.isReady else { return }
+
+        var msgs = messagesByTopic[topicID, default: []]
+        msgs.append(ChatMessage(role: .user, content: trimmed))
+        msgs.append(ChatMessage(role: .agent))
+        messagesByTopic[topicID] = msgs
+        pendingTopics.append(topicID)
+        statusText = "thinking…"
+        client.send(sessionId: topicID, message: trimmed)
+    }
+
+    /// Port of the onEvent switch in frontend/src/components/Chat.tsx,
+    /// routed to the topic at the head of the turn queue.
     private func apply(_ e: EngineClient.Event) {
+        guard let topicID = pendingTopics.first else { return }
         switch e.type {
         case "status":
             statusText = e.content.isEmpty ? statusText : e.content
-            if !e.content.isEmpty, let i = streamingAgentIndex() {
-                messages[i].activities.append("⚡ \(e.content)")
+            if !e.content.isEmpty {
+                mutateAgentBubble(topicID) { $0.activities.append("⚡ \(e.content)") }
             }
         case "token":
-            if let i = streamingAgentIndex(createIfNeeded: true) {
-                messages[i].content += e.content
-            }
+            mutateAgentBubble(topicID) { $0.content += e.content }
         case "tool_start":
-            if let i = streamingAgentIndex(createIfNeeded: true) {
-                messages[i].activities.append("🔧 \(e.content)")
-            }
+            mutateAgentBubble(topicID) { $0.activities.append("🔧 \(e.content)") }
         case "tool_end":
-            if let i = streamingAgentIndex(createIfNeeded: true) {
-                let first = e.content.split(separator: "\n").first.map(String.init) ?? ""
-                messages[i].activities.append("✓ \(String(first.prefix(80)))")
-            }
+            let first = e.content.split(separator: "\n").first.map(String.init) ?? ""
+            mutateAgentBubble(topicID) { $0.activities.append("✓ \(String(first.prefix(80)))") }
         case "error":
-            if let i = streamingAgentIndex(createIfNeeded: true) {
-                messages[i].isError = true
-                if messages[i].content.isEmpty {
-                    messages[i].content = e.content
+            mutateAgentBubble(topicID) { bubble in
+                bubble.isError = true
+                if bubble.content.isEmpty {
+                    bubble.content = e.content
                 } else if !e.content.isEmpty {
-                    messages[i].activities.append("⚠ \(e.content)")
+                    bubble.activities.append("⚠ \(e.content)")
                 }
             }
             statusText = "error"
         case "done":
-            isSending = false
-            streamingIndex = -1
-            statusText = "ready"
+            statusText = pendingTopics.count > 1 ? "thinking…" : "ready"
         default:
             break
         }
+        // "done"/"error" are the terminal events (exactly one per turn, in
+        // order — turns are serialized), so release this topic's slot.
+        if e.type == "done" || e.type == "error" {
+            pendingTopics.removeFirst()
+        }
     }
 
-    /// Index of the bubble currently receiving agent events; creates one if
-    /// the stream starts before we appended (defensive, mirrors Chat.tsx).
-    private func streamingAgentIndex(createIfNeeded: Bool = false) -> Int? {
-        if streamingIndex >= 0 && streamingIndex < messages.count,
-           messages[streamingIndex].role == .agent {
-            return streamingIndex
+    /// Apply `mutate` to the live agent bubble for `topicID`, creating one
+    /// if missing (defensive, mirrors Chat.tsx). No-op if there is none.
+    private func mutateAgentBubble(_ topicID: String,
+                                   _ mutate: (inout ChatMessage) -> Void) {
+        var msgs = messagesByTopic[topicID] ?? []
+        if let i = msgs.lastIndex(where: { $0.role == .agent }) {
+            // The bubble appended in send() is the last agent one; a topic
+            // can't stream two turns at once, so it's always the live one.
+            mutate(&msgs[i])
+        } else {
+            var bubble = ChatMessage(role: .agent)
+            mutate(&bubble)
+            msgs.append(bubble)
         }
-        guard createIfNeeded else { return nil }
-        messages.append(ChatMessage(role: .agent))
-        streamingIndex = messages.count - 1
-        return streamingIndex
+        messagesByTopic[topicID] = msgs
     }
 
     // ── settings / config yaml ─────────────────────────────────────────────

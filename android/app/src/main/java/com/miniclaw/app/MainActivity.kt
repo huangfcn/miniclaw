@@ -16,9 +16,9 @@ import android.widget.ListView
 import android.widget.TextView
 
 /**
- * Three-tab UX (Chat / Status / Settings) — native port of the React frontend's
- * mobile views and the iOS SwiftUI app. The engine runs in-process via JNI:
- * MainActivity → EngineClient → NativeEngine → libminiclaw_core.so.
+ * Four-tab UX (Chat / Status / Models / Settings) — native port of the React
+ * frontend's mobile views and the iOS SwiftUI app. The engine runs in-process
+ * via JNI: MainActivity → EngineClient → NativeEngine → libminiclaw_core.so.
  */
 class MainActivity : Activity() {
 
@@ -71,12 +71,19 @@ class MainActivity : Activity() {
     private lateinit var yamlNotice: TextView
     private lateinit var infoProvider: TextView
 
-    // tab views + nav labels
+    // tab views + nav labels (order matches activity_main.xml: chat/status/models/settings)
     private lateinit var tabChat: View
     private lateinit var tabStatus: View
+    private lateinit var tabModels: View
     private lateinit var tabSettings: View
-    private val navLabels = intArrayOf(R.id.tab_chat_label, R.id.tab_status_label, R.id.tab_settings_label)
+    private val navLabels = intArrayOf(
+        R.id.tab_chat_label, R.id.tab_status_label, R.id.tab_models_label, R.id.tab_settings_label,
+    )
     private var activeTab = 0
+
+    // models tab (on-device MNN inference)
+    private lateinit var modelManager: ModelManager
+    private lateinit var modelsTab: ModelsTab
 
     /** Snapshot of the yaml at last load; dirty = editor text differs. */
     private var yamlLoaded: String? = null
@@ -102,6 +109,14 @@ class MainActivity : Activity() {
         wireTabs()
 
         client = EngineClient(filesDir.absolutePath)
+        modelManager = ModelManager(client)
+        modelsTab = ModelsTab(
+            this, client, modelManager,
+            findViewById(R.id.models_cards),
+            findViewById(R.id.models_dir),
+        )
+        modelManager.onState = { modelsTab.renderAll() }
+        modelsTab.bind()
         client.setUiListener(object : EngineClient.UiListener {
             override fun onToken(text: String) = appendAgent(text)
             override fun onToolStart(content: String) =
@@ -156,6 +171,7 @@ class MainActivity : Activity() {
     private fun bindViews() {
         tabChat = findViewById(R.id.tab_chat_root)
         tabStatus = findViewById(R.id.tab_status_root)
+        tabModels = findViewById(R.id.tab_models_root)
         tabSettings = findViewById(R.id.tab_settings_root)
 
         list = findViewById(R.id.messages)
@@ -201,7 +217,8 @@ class MainActivity : Activity() {
 
         findViewById<View>(R.id.tab_chat).setOnClickListener { selectTab(0) }
         findViewById<View>(R.id.tab_status).setOnClickListener { selectTab(1) }
-        findViewById<View>(R.id.tab_settings).setOnClickListener { selectTab(2) }
+        findViewById<View>(R.id.tab_models).setOnClickListener { selectTab(2) }
+        findViewById<View>(R.id.tab_settings).setOnClickListener { selectTab(3) }
     }
 
     private fun wireChat() {
@@ -237,7 +254,8 @@ class MainActivity : Activity() {
         activeTab = i
         tabChat.visibility = if (i == 0) View.VISIBLE else View.GONE
         tabStatus.visibility = if (i == 1) View.VISIBLE else View.GONE
-        tabSettings.visibility = if (i == 2) View.VISIBLE else View.GONE
+        tabModels.visibility = if (i == 2) View.VISIBLE else View.GONE
+        tabSettings.visibility = if (i == 3) View.VISIBLE else View.GONE
         val accent = resources.getColor(R.color.accent, null)
         val tertiary = resources.getColor(R.color.text_tertiary, null)
         for (j in navLabels.indices) {
@@ -249,7 +267,11 @@ class MainActivity : Activity() {
         } else {
             handler.removeCallbacks(uptimeTick)
         }
-        if (i == 2 && yamlLoaded == null) loadYaml()
+        if (i == 2) {
+            modelManager.refreshStatus()
+            modelsTab.renderAll()
+        }
+        if (i == 3 && yamlLoaded == null) loadYaml()
     }
 
     // ── engine state → UI (chat hero, status tab, composer) ────────────────
@@ -298,6 +320,23 @@ class MainActivity : Activity() {
 
         infoProvider.text = setModel.text.toString().ifEmpty { "default" }
         sendEnabled()
+
+        // Re-apply saved local-provider toggles once the engine is ready
+        // (mirrors ios AppState.applySavedSettings — prefs are written at
+        // toggle time, but a fresh engine starts with the default provider).
+        if (ready) reapplyLocalProviders()
+    }
+
+    private fun reapplyLocalProviders() {
+        val p = prefs()
+        for ((key, section) in listOf(
+            "local_provider_llm" to "conversation",
+            "local_provider_embedding" to "embedding",
+        )) {
+            if (p.getString(key, "openai") == "mnn") {
+                client.setString(section, "provider", "mnn")
+            }
+        }
     }
 
     private fun updateUptime() {

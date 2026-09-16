@@ -1,58 +1,166 @@
 import SwiftUI
 
-/// Chat tab — native port of frontend/src/components/Chat.tsx.
-/// Bubbles, activity panel (⚡ status / 🔧 tool / ✓ result), streaming
-/// tokens, "Thinking…" indicator and the bottom composer.
-struct ChatView: View {
+/// One topic's conversation — the Slack "channel view": header with the
+/// channel name + description and a pin toggle, message list (bubbles,
+/// activity panel, streaming tokens, Thinking… indicator), bottom composer.
+///
+/// Replaces the old single-session ChatView; the engine session id is the
+/// topic id, so each topic keeps its own history on disk.
+struct TopicChatView: View {
     @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var topics: TopicStore
+
+    let topic: Topic
     @State private var input = ""
     @FocusState private var inputFocused: Bool
+
+    /// Live topic (so pin toggles / renames reflect without re-navigation).
+    private var liveTopic: Topic { topics.topic(topic.id) ?? topic }
+    private var messages: [ChatMessage] { state.messages(for: topic.id) }
+    private var streaming: Bool { state.isStreaming(topic.id) }
 
     var body: some View {
         ZStack {
             Theme.page.ignoresSafeArea()
-            if state.messages.isEmpty {
+            if messages.isEmpty {
                 emptyState
             } else {
                 messageList
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-    }
-
-    // ── empty state (Chat.tsx lines 127-137) ───────────────────────────────
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(Theme.card)
-                    .overlay(Circle().strokeBorder(Theme.hairline, lineWidth: 1))
-                    .frame(width: 72, height: 72)
-                Image(systemName: "sparkle")
-                    .font(.system(size: 30, weight: .light))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-            VStack(spacing: 4) {
-                Text("MINICLAW ASSISTANT")
-                    .font(.system(size: 11, weight: .bold))
-                    .kerning(2)
-                    .foregroundStyle(Theme.textTertiary)
-                Text(subtitle)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+        .safeAreaInset(edge: .top, spacing: 0) { header }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                if input.isEmpty && !streaming {
+                    suggestionRow
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                }
+                composer
             }
         }
     }
 
-    private var subtitle: String {
+    // ── suggested prompts (fill the composer; user taps send) ─────────────
+
+    private var suggestions: [String] {
+        switch topic.id {
+        case "news":     return ["Summarize today's top stories",
+                                 "What's moving in tech today?"]
+        case "weather":  return ["Forecast for this week",
+                                 "What should I wear today?"]
+        case "finance":  return ["How are the markets doing?",
+                                 "Review my budget"]
+        case "travel":   return ["Plan a weekend trip under $500",
+                                 "Compare hotels in Tokyo"]
+        case "meetings": return ["What do you suggest based on my behavior?",
+                                 "Summarize my open action items",
+                                 "What patterns do you see in my work this week?"]
+        default:         return ["What can I ask you here?"]
+        }
+    }
+
+    private var suggestionRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(suggestions, id: \.self) { s in
+                    Button {
+                        input = s
+                        inputFocused = true
+                    } label: {
+                        Text(s)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(Theme.card))
+                            .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // ── channel header (Slack: #name + description) ────────────────────────
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            TopicAvatar(topic: liveTopic, size: 34)
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 3) {
+                    Text("#")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(liveTopic.color)
+                    Text(liveTopic.name)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                }
+                Text(liveTopic.blurb)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                topics.togglePin(topic.id)
+            } label: {
+                Image(systemName: liveTopic.pinned ? "pin.fill" : "pin")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(liveTopic.pinned ? liveTopic.color : Theme.textTertiary)
+                    .frame(width: 34, height: 34)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Theme.hairline, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Theme.page.opacity(0.98))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+        }
+    }
+
+    // ── empty state ─────────────────────────────────────────────────────────
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            TopicAvatar(topic: liveTopic, size: 64)
+            VStack(spacing: 5) {
+                Text("#\(liveTopic.name)")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(liveTopic.blurb)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                Text(emptyHint)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 56)
+            }
+        }
+    }
+
+    private var emptyHint: String {
         if let err = state.startError { return err }
-        switch (state.isReady, state.isSending) {
-        case (true, false):  return "Ready to help. Ask me anything or give me a task."
-        case (true, true):   return "Working on it…"
-        default:             return "Starting up…"
+        if !state.isReady { return "Starting up…" }
+        switch topic.id {
+        case "news":     return "Ask for today's headlines, a topic deep-dive, or set up a daily digest."
+        case "weather":  return "Ask about today's forecast, this weekend, or what to pack."
+        case "finance":  return "Check market moves, review your budget, or plan a purchase."
+        case "travel":   return "Research destinations, compare hotels, or build an itinerary."
+        case "meetings": return "Paste raw notes and get a clean summary with action items."
+        default:         return "Say hello — this topic keeps its own conversation history."
         }
     }
 
@@ -62,30 +170,30 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 24) {
-                    ForEach(state.messages) { msg in
+                    ForEach(messages) { msg in
                         MessageRow(message: msg)
                             .id(msg.id)
                     }
                     Group {
-                        if state.isSending { thinkingIndicator }
+                        if streaming { thinkingIndicator }
                     }
                     .id("thinking")
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 24)
+                .padding(.top, 20)
                 .padding(.bottom, 16)
             }
-            .onChange(of: state.messages) { _ in
+            .onChange(of: state.messagesByTopic[topic.id]) { _ in
                 withAnimation(.easeOut(duration: 0.15)) {
-                    if state.isSending {
+                    if streaming {
                         proxy.scrollTo("thinking", anchor: .bottom)
-                    } else if let last = state.messages.last {
+                    } else if let last = messages.last {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
             }
             .onAppear {
-                if let last = state.messages.last {
+                if let last = messages.last {
                     proxy.scrollTo(last.id, anchor: .bottom)
                 }
             }
@@ -105,11 +213,11 @@ struct ChatView: View {
         .padding(.leading, 4)
     }
 
-    // ── composer (Chat.tsx input area) ──────────────────────────────────────
+    // ── composer ────────────────────────────────────────────────────────────
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Type a message…", text: $input, axis: .vertical)
+            TextField("Message #\(liveTopic.name)", text: $input, axis: .vertical)
                 .lineLimit(1...5)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.textPrimary)
@@ -148,15 +256,33 @@ struct ChatView: View {
     private var canSend: Bool {
         state.isReady
             && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !state.isSending
+            && !streaming
     }
 
     private func send() {
         let text = input
         guard canSend else { return }
         input = ""
-        state.send(text)
+        state.send(text, to: topic.id)
         inputFocused = true
+    }
+}
+
+// ── shared channel avatar (list rows + chat header + empty state) ──────────
+
+struct TopicAvatar: View {
+    let topic: Topic
+    var size: CGFloat = 32
+
+    var body: some View {
+        Image(systemName: topic.symbol)
+            .font(.system(size: size * 0.46, weight: .medium))
+            .foregroundStyle(topic.color)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.31, style: .continuous)
+                .fill(topic.color.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.31, style: .continuous)
+                .strokeBorder(topic.color.opacity(0.25), lineWidth: 1))
     }
 }
 

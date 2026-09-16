@@ -106,7 +106,7 @@ server out of the library.
 |---|---|---|
 | Windows / Linux / macOS | Tauri desktop app (React UI) | ✅ working |
 | Android | **Native** Kotlin app, engine in-process | ✅ working (debug) |
-| iOS | Native app over the same C ABI | 🚧 planned — the bridge is a thin Obj-C++ shim over `agent_api.h` |
+| iOS | Native SwiftUI app over the same C ABI | ✅ working — Slack-style topics + local models |
 
 ## Roadmap
 
@@ -122,9 +122,10 @@ server out of the library.
 3. **Trust features** — Keystore-backed token storage, one-tap memory
    export/backup (move-to-new-phone = copy the workspace), permission
    explanations.
-4. **iOS** — same core, new shim + app shell.
-5. **On-device small models** — distillation & embeddings locally (phase 2
-   of the model strategy above).
+4. **On-device small models** — ✅ MNN inference on mobile: Qwen3-1.7B chat
+   + BGE-M3 embeddings run in-process (`docs/LOCAL_MODELS.md`). Remaining:
+   on-device distillation by default, model auto-update, larger-model
+   quality pass.
 
 ## Quick start
 

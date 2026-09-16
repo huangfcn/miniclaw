@@ -5,7 +5,7 @@
 #
 # Prereqs:
 #   - backend built with -DMC_E2E_TEST=ON and `mc_e2e` target built
-#   - mock LLM running:  python backend/test/mock_llm.py
+#   - mock LLM running:  python backend/tests/mock_llm.py
 #
 # Creates a fresh workspace (session state persists between runs, which would
 # make the mock skip issuing a new tool call), points it at the mock, and

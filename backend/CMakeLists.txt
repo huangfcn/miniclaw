@@ -295,6 +295,37 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(simdjson)
 
+# ── MNN (local on-device inference: Qwen chat + BGE-M3 embeddings) ─────────
+# Enabled per build: backend/tools/build_ios.sh and build_android.sh pass
+# -DMC_USE_MNN=ON. Static build, LLM engine on, everything else off.
+# See docs/LOCAL_MODELS.md for the model catalog and setup guide.
+option(MC_USE_MNN "Build MNN local inference into miniclaw_core" OFF)
+if(MC_USE_MNN)
+    set(MNN_BUILD_LLM ON CACHE BOOL "" FORCE)
+    set(MNN_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(MNN_SEP_BUILD OFF CACHE BOOL "" FORCE)
+    set(MNN_BUILD_DEMO OFF CACHE BOOL "" FORCE)
+    set(MNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(MNN_BUILD_CONVERTER OFF CACHE BOOL "" FORCE)
+    set(MNN_BUILD_PROTOBUFFER OFF CACHE BOOL "" FORCE)
+    set(MNN_BUILD_LLM_OMNI OFF CACHE BOOL "" FORCE)
+    if(APPLE)
+        # Metal backend for Apple devices (CPU fallback still available).
+        set(MNN_METAL ON CACHE BOOL "" FORCE)
+    endif()
+    if(WIN32)
+        # MNN's LLM engine bundles cpp-httplib (LLM_SUPPORT_HTTP_RESOURCE),
+        # which requires the Windows 10 API set. MSYS2/MinGW defaults to
+        # _WIN32_WINNT=0x0602, so bump it before the subdirectory builds.
+        add_compile_definitions(_WIN32_WINNT=0x0A00)
+    endif()
+    FetchContent_Declare(
+      mnn
+      URL https://codeload.github.com/alibaba/MNN/tar.gz/refs/tags/3.6.1
+    )
+    FetchContent_MakeAvailable(mnn)
+endif()
+
 # libcurl — iOS only: the iPhoneOS SDK does not ship curl (unlike macOS), so
 # build it from source, statically, against SecureTransport (Apple's built-in
 # TLS stack — no OpenSSL exists on iOS) and the SDK's zlib. The ZLIB::ZLIB /
@@ -357,6 +388,7 @@ set(MINICLAW_CORE_SOURCES
     src/agent/memory_index.cpp
     src/agent/shutdown.cpp
     src/agent/cron_service.cpp
+    src/local/mnn_inference.cpp
 )
 
 if(ANDROID)
@@ -394,6 +426,14 @@ function(miniclaw_apply_core_target tgt)
         yaml-cpp
         simdjson
     )
+    if(MC_USE_MNN)
+        target_compile_definitions(${tgt} PRIVATE MC_HAVE_MNN)
+        target_include_directories(${tgt} PRIVATE
+            ${mnn_SOURCE_DIR}/include
+            ${mnn_SOURCE_DIR}/transformers/llm/engine/include
+        )
+        target_link_libraries(${tgt} PRIVATE MNN)
+    endif()
     # Platform-specific search/BLAS libs
     if(APPLE)
         if(IOS)
@@ -474,11 +514,19 @@ endif()
 # Build with: cmake -B build -DFORCE_MOBILE=ON -DMC_E2E_TEST=ON
 option(MC_E2E_TEST "Build the mobile C-ABI end-to-end test driver" OFF)
 if(MC_E2E_TEST AND NOT ANDROID AND NOT IOS)
-    add_executable(mc_e2e test/mobile_e2e_test.cpp ${MINICLAW_CORE_SOURCES}
+    add_executable(mc_e2e tests/mobile_e2e_test.cpp ${MINICLAW_CORE_SOURCES}
                      src/mobile/agent_api.cpp)
     # Always mobile mode: this driver exists to test the phone code path.
     target_compile_definitions(mc_e2e PRIVATE MC_MOBILE)
     miniclaw_apply_core_target(mc_e2e)
+endif()
+
+# Desktop driver for the MNN local-inference C ABI (see docs/LOCAL_MODELS.md):
+#   mnn_local_test <workspace_dir> [message]
+if(MC_USE_MNN AND NOT ANDROID AND NOT IOS)
+    add_executable(mnn_local_test tests/mnn_local_test.cpp)
+    target_include_directories(mnn_local_test PRIVATE src)
+    target_link_libraries(mnn_local_test PRIVATE miniclaw_core)
 endif()
 
 # ── JNI bridge (native Android app, see android/) ───────────────────────────

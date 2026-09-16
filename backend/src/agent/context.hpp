@@ -15,6 +15,8 @@
 #include "agent_types.hpp"
 #include <functional>
 
+#include <simdjson.h>
+
 class ContextBuilder {
 public:
     static constexpr const char* BOOTSTRAP_FILES[] = {
@@ -53,7 +55,14 @@ public:
 
         std::string prompt = join(parts, "\n\n---\n\n");
 
-        if (!channel.empty() && !chat_id.empty()) {
+        // Topic context: the mobile UIs (iOS/Android) write <workspace>/topics.json
+        // describing their Slack-style topics. When the current session matches
+        // one, tell the model what this channel is for — e.g. #meetings is a work
+        // journal where it should analyze behavior patterns and suggest changes.
+        std::string topic = load_topic_context(chat_id);
+        if (!topic.empty()) {
+            prompt += "\n\n## Current Topic\n" + topic;
+        } else if (!channel.empty() && !chat_id.empty()) {
             prompt += "\n\n## Current Session\nChannel: " + channel + "\nChat ID: " + chat_id;
         }
 
@@ -119,6 +128,40 @@ private:
             parts.push_back("## " + std::string(fname) + "\n\n" + ss.str());
         }
         return join(parts, "\n\n");
+    }
+
+    /// Reads <workspace>/topics.json (written by the mobile app on every
+    /// change) and returns a system-prompt section describing the topic whose
+    /// id matches `session_id` — or "" when the file is missing/unreadable or
+    /// the session is not a known topic. Format: [{"id","name","blurb","purpose"}]
+    std::string load_topic_context(const std::string& session_id) const {
+        if (session_id.empty()) return "";
+        fs::path p = fs::path(workspace_) / "topics.json";
+        if (!fs::exists(p)) return "";
+        std::ifstream f(p);
+        if (!f.is_open()) return "";
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        std::string text = ss.str();
+
+        simdjson::dom::parser parser;
+        simdjson::dom::element root;
+        if (parser.parse(text).get(root)) return "";
+        if (!root.is_array()) return "";
+        for (auto t : root) {
+            std::string_view id_sv, name_sv, blurb_sv, purpose_sv;
+            if (t["id"].get(id_sv)) continue;
+            if (std::string(id_sv) != session_id) continue;
+            std::string out = "You are conversing in the \"#" +
+                              (t["name"].get(name_sv) ? std::string(id_sv) : std::string(name_sv)) +
+                              "\" topic.";
+            if (!t["blurb"].get(blurb_sv) && !blurb_sv.empty())
+                out += " Purpose: " + std::string(blurb_sv) + ".";
+            if (!t["purpose"].get(purpose_sv) && !purpose_sv.empty())
+                out += "\n" + std::string(purpose_sv);
+            return out;
+        }
+        return "";
     }
 
     static std::string join(const std::vector<std::string>& v, const std::string& sep) {

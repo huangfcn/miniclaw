@@ -18,6 +18,8 @@
              Initial visibility is set by selectTab(0) in onCreate. -->
         <include layout="@layout/view_status" />
 
+        <include layout="@layout/view_models" />
+
         <include layout="@layout/view_settings" />
     </FrameLayout>
 
@@ -86,6 +88,34 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Status"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:textColor="@color/text_tertiary" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tab_models"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tab_models_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🧠"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/tab_models_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Models"
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:letterSpacing="0.1"

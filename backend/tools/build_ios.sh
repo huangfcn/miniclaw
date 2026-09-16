@@ -65,11 +65,17 @@ echo "🦞 Building miniclaw_core for iOS $TARGET ($ARCH, iOS $MIN_IOS)..."
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
+# Local MNN inference (Qwen chat + BGE-M3 embeddings). First configure
+# downloads and compiles MNN from source — allow extra time. Disable with
+# MC_USE_MNN=0 for a leaner build.
+MNN_FLAG="-DMC_USE_MNN=$([ "${MC_USE_MNN:-1}" = "0" ] && echo OFF || echo ON)"
+
 cmake -DCMAKE_SYSTEM_NAME=iOS \
       $SYSROOT_OPT \
       -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
       -DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN_IOS" \
       -DUSE_SQLITE=ON \
+      $MNN_FLAG \
       -DCMAKE_BUILD_TYPE=Release \
       "$@" \
       ..

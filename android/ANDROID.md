@@ -150,7 +150,7 @@ Emulator-specific tips:
 ## Desktop e2e test (no device needed)
 
 The engine path under the JNI is the same C ABI exercised on desktop — see
-`MOBILE.md` §6.1 (`backend/test/mock_llm.py` + the `mc_e2e` driver). The
+`MOBILE.md` §6.1 (`backend/tests/mock_llm.py` + the `mc_e2e` driver). The
 JVM side (thread attaching, global refs, UI marshaling) only runs on a real
 device/emulator; a missing JNI symbol shows up there as an
 `UnsatisfiedLinkError` naming the exact method.

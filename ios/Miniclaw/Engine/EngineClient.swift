@@ -142,4 +142,23 @@ final class EngineClient {
         guard let engine else { return false }
         return mc_set_string(engine, section, key, value) == 0
     }
+
+    // ── local models (MNN) ─────────────────────────────────────────────────
+
+    /// JSON status of the on-device MNN models:
+    ///   {"llm":{"loaded":bool,"dir":"...","message":""},
+    ///    "embedding":{"loaded":bool,"dir":"...","message":""}}
+    func localStatus() -> String? {
+        guard let engine else { return nil }
+        let ptr = mc_local_status(engine)
+        defer { if let ptr { mc_free_string(ptr) } }
+        return ptr.map { String(cString: $0) }
+    }
+
+    /// Start a background preload of a local model ("llm" | "embedding").
+    /// true when the load is running (or already loaded).
+    func localLoad(kind: String) -> Bool {
+        guard let engine else { return false }
+        return mc_local_load(engine, kind) == 0
+    }
 }

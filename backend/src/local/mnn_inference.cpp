@@ -1,0 +1,290 @@
+// MnnInference — MNN-backed local inference (see mnn_inference.hpp).
+//
+// Compiled into miniclaw_core only when MC_USE_MNN=ON; otherwise every
+// method reports "MNN support not compiled" so the rest of the engine can
+// reference this class unconditionally.
+
+#include "local/mnn_inference.hpp"
+
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+#include <spdlog/spdlog.h>
+
+#include "../agent/agent_types.hpp"
+#include "../config.hpp"
+
+#ifdef MC_HAVE_MNN
+#include <llm/llm.hpp>  // MNN::Transformer::{Llm, Embedding, ChatMessages}
+
+namespace {
+
+// streambuf that turns MNN's per-token `*os << piece << flush` pattern into
+// discrete chunk callbacks: characters accumulate until the next flush, at
+// which point the pending text is emitted as one chunk (see
+// speculative_decoding/generate.cpp — one write + one flush per token).
+class TokenStreamBuf : public std::streambuf {
+ public:
+  explicit TokenStreamBuf(std::function<void(const std::string&)> on_chunk)
+      : on_chunk_(std::move(on_chunk)) {}
+
+ protected:
+  // No internal buffer region: every character written to this streambuf
+  // lands in overflow() (per-char calls are negligible next to decode time).
+  int overflow(int_type c) override {
+    if (c != traits_type::eof()) pending_ += traits_type::to_char_type(c);
+    return traits_type::not_eof(c);
+  }
+
+  int sync() override {
+    if (!pending_.empty()) {
+      if (on_chunk_) on_chunk_(pending_);
+      pending_.clear();
+    }
+    return 0;
+  }
+
+ private:
+  std::function<void(const std::string&)> on_chunk_;
+  std::string pending_;
+};
+
+}  // namespace
+#endif  // MC_HAVE_MNN
+
+MnnInference &MnnInference::instance() {
+  static MnnInference inst;
+  return inst;
+}
+
+std::string MnnInference::resolve_dir(const std::string &cfg_value) {
+  namespace fs = std::filesystem;
+  if (cfg_value.empty()) return "";
+  fs::path p(cfg_value);
+  if (p.is_absolute()) return fs::absolute(p).lexically_normal().string();
+  return (fs::path(Config::instance().memory_workspace()) / p)
+      .lexically_normal()
+      .string();
+}
+
+MnnInference::SlotStatus MnnInference::llm_status() const {
+  std::lock_guard<std::mutex> lock(llm_.mutex);
+  SlotStatus s;
+  s.loaded = llm_.loaded;
+  s.model_dir = llm_.dir;
+  s.message = llm_.message;
+  return s;
+}
+
+MnnInference::SlotStatus MnnInference::embedding_status() const {
+  std::lock_guard<std::mutex> lock(emb_.mutex);
+  SlotStatus s;
+  s.loaded = emb_.loaded;
+  s.model_dir = emb_.dir;
+  s.message = emb_.message;
+  return s;
+}
+
+#ifdef MC_HAVE_MNN
+
+void *MnnInference::ensure_llm(std::string *error) {
+  std::lock_guard<std::mutex> lock(llm_.mutex);
+  if (llm_.loaded) return llm_.handle;
+
+  llm_.dir = resolve_dir(Config::instance().local_llm_model_dir());
+  std::string config_path = llm_.dir + "/llm_config.json";
+  if (!std::filesystem::exists(config_path)) {
+    llm_.message = "model not found: " + config_path;
+    spdlog::error("MNN LLM: {}", llm_.message);
+    if (error) *error = llm_.message;
+    return nullptr;
+  }
+
+  spdlog::info("MNN LLM: loading {} ...", config_path);
+  auto *llm = MNN::Transformer::Llm::createLLM(config_path);
+  bool ok = false;
+  try {
+    ok = llm->load();
+  } catch (const std::exception &e) {
+    llm_.message = std::string("load failed: ") + e.what();
+  }
+  if (!ok && llm_.message.empty()) {
+    llm_.message = "load failed: " + llm->getLog();
+  }
+  if (!ok) {
+    spdlog::error("MNN LLM: {}", llm_.message);
+    MNN::Transformer::Llm::destroy(llm);
+    if (error) *error = llm_.message;
+    return nullptr;
+  }
+
+  llm_.handle = llm;
+  llm_.loaded = true;
+  llm_.message.clear();
+  spdlog::info("MNN LLM: loaded from {}", llm_.dir);
+  return llm_.handle;
+}
+
+void *MnnInference::ensure_embedding(std::string *error) {
+  std::lock_guard<std::mutex> lock(emb_.mutex);
+  if (emb_.loaded) return emb_.handle;
+
+  emb_.dir = resolve_dir(Config::instance().local_embedding_model_dir());
+  std::string config_path = emb_.dir + "/llm_config.json";
+  if (!std::filesystem::exists(config_path)) {
+    emb_.message = "model not found: " + config_path;
+    spdlog::error("MNN Embedding: {}", emb_.message);
+    if (error) *error = emb_.message;
+    return nullptr;
+  }
+
+  spdlog::info("MNN Embedding: loading {} ...", config_path);
+  // load=false: we call load() ourselves to check its result.
+  auto *emb = MNN::Transformer::Embedding::createEmbedding(config_path, false);
+  bool ok = false;
+  try {
+    ok = emb->load();
+  } catch (const std::exception &e) {
+    emb_.message = std::string("load failed: ") + e.what();
+  }
+  if (!ok && emb_.message.empty()) {
+    emb_.message = "load failed: " + emb->getLog();
+  }
+  if (!ok) {
+    spdlog::error("MNN Embedding: {}", emb_.message);
+    MNN::Transformer::Llm::destroy(emb);
+    if (error) *error = emb_.message;
+    return nullptr;
+  }
+
+  emb_.handle = emb;
+  emb_.loaded = true;
+  emb_.message.clear();
+  spdlog::info("MNN Embedding: loaded from {} (dim={})", emb_.dir, emb->dim());
+  return emb_.handle;
+}
+
+LLMResponse MnnInference::chat(
+    const std::vector<Message> &messages,
+    const std::function<void(const AgentEvent&)> &on_event,
+    std::string *error) {
+  LLMResponse resp;
+  std::lock_guard<std::mutex> global(global_mutex_);
+
+  auto *llm = static_cast<MNN::Transformer::Llm *>(ensure_llm(error));
+  if (!llm) return resp;
+  std::lock_guard<std::mutex> slot(llm_.mutex);
+
+  // Map miniclaw messages -> MNN chat template roles. Local models do not
+  // do function calling: assistant tool_calls are dropped, tool results are
+  // folded into user messages as labeled text.
+  MNN::Transformer::ChatMessages prompts;
+  for (const auto &m : messages) {
+    if (m.role == "tool") {
+      std::string label = m.name.empty() ? m.tool_call_id : m.name;
+      prompts.emplace_back(
+          "user", "[tool result: " + label + "]\n" + m.content);
+    } else if (m.role == "assistant") {
+      if (!m.content.empty()) prompts.emplace_back("assistant", m.content);
+      // tool_calls_json is intentionally dropped
+    } else {
+      prompts.emplace_back(m.role, m.content);  // system / user
+    }
+  }
+
+  // Fresh context per call: the agent always passes the full history and
+  // MNN keeps its own KV history across response() calls — without a reset
+  // the prompt would be duplicated. (Prompt caching can replace this later.)
+  llm->reset();
+
+  std::string content;
+  TokenStreamBuf buf([&](const std::string &chunk) {
+    content += chunk;
+    if (on_event) on_event({"token", chunk});
+  });
+  std::ostream stream(&buf);
+  try {
+    llm->response(prompts, &stream, /*end_with=*/"", /*max_new_tokens=*/-1);
+    // Emit anything left without a trailing flush.
+    stream.flush();
+  } catch (const std::exception &e) {
+    if (error) *error = std::string("inference failed: ") + e.what();
+    spdlog::error("MNN LLM inference failed: {}", e.what());
+    return resp;
+  }
+
+  resp.content = std::move(content);
+  return resp;
+}
+
+std::vector<float> MnnInference::embed_text(const std::string &text,
+                                            std::string *error) {
+  std::lock_guard<std::mutex> global(global_mutex_);
+
+  auto *emb = static_cast<MNN::Transformer::Embedding *>(ensure_embedding(error));
+  if (!emb) return {};
+  std::lock_guard<std::mutex> slot(emb_.mutex);
+
+  try {
+    MNN::Express::VARP out = emb->txt_embedding(text);
+    auto info = out->getInfo();
+    size_t n = 1;
+    for (size_t i = 0; i < info->dim.size(); i++) n *= info->dim[i];
+    const float *data = out->readMap<float>();
+    return std::vector<float>(data, data + n);
+  } catch (const std::exception &e) {
+    if (error) *error = std::string("embedding failed: ") + e.what();
+    spdlog::error("MNN embedding failed: {}", e.what());
+    return {};
+  }
+}
+
+bool MnnInference::load_llm(std::string *error) {
+  std::lock_guard<std::mutex> global(global_mutex_);
+  return ensure_llm(error) != nullptr;
+}
+
+bool MnnInference::load_embedding(std::string *error) {
+  std::lock_guard<std::mutex> global(global_mutex_);
+  return ensure_embedding(error) != nullptr;
+}
+
+#else  // !MC_HAVE_MNN
+
+void *MnnInference::ensure_llm(std::string *error) {
+  llm_.message = "MNN support not compiled (rebuild with -DMC_USE_MNN=ON)";
+  if (error) *error = llm_.message;
+  return nullptr;
+}
+
+void *MnnInference::ensure_embedding(std::string *error) {
+  emb_.message = "MNN support not compiled (rebuild with -DMC_USE_MNN=ON)";
+  if (error) *error = emb_.message;
+  return nullptr;
+}
+
+LLMResponse MnnInference::chat(
+    const std::vector<Message> &,
+    const std::function<void(const AgentEvent&)> &, std::string *error) {
+  llm_.message = "MNN support not compiled (rebuild with -DMC_USE_MNN=ON)";
+  if (error) *error = llm_.message;
+  return {};
+}
+
+std::vector<float> MnnInference::embed_text(const std::string &,
+                                            std::string *error) {
+  emb_.message = "MNN support not compiled (rebuild with -DMC_USE_MNN=ON)";
+  if (error) *error = emb_.message;
+  return {};
+}
+
+bool MnnInference::load_llm(std::string *error) {
+  return ensure_llm(error) != nullptr;
+}
+
+bool MnnInference::load_embedding(std::string *error) {
+  return ensure_embedding(error) != nullptr;
+}
+
+#endif  // MC_HAVE_MNN

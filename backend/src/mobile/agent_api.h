@@ -71,6 +71,18 @@ int mc_set_string(mc_engine *engine, const char *section, const char *key,
 // Engine status: 1 = running, 0 = stopped.
 int mc_is_running(mc_engine *engine);
 
+// Local (on-device MNN) model status as a JSON string:
+//   {"llm":{"loaded":true,"dir":"...","message":""},
+//    "embedding":{"loaded":false,"dir":"...","message":"model not found: ..."}}
+// Returns a malloc'd copy — free with mc_free_string().
+char *mc_local_status(mc_engine *engine);
+
+// Preload a local model in the background (non-blocking).
+//   kind: "llm" | "embedding"
+// Returns 0 when the load is running (or already loaded), -1 on error
+// (unknown kind, MNN not compiled in). Poll mc_local_status() for progress.
+int mc_local_load(mc_engine *engine, const char *kind);
+
 // Human-readable description of the last error (process-wide static buffer).
 const char *mc_last_error(void);
 

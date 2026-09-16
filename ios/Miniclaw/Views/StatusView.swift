@@ -80,6 +80,8 @@ struct StatusView: View {
             divider
             row("Endpoint", state.endpoint.isEmpty ? "default" : state.endpoint, mono: true)
             divider
+            sessionsRow
+            divider
             row("Workspace", state.workspaceDir, mono: true)
         }
         .background(
@@ -94,6 +96,37 @@ struct StatusView: View {
         guard let start = state.readyAt else { return "—" }
         let s = max(0, Int(Date().timeIntervalSince(start)))
         return String(format: "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+    }
+
+    /// One backend session file per topic (sessions/<topic>.jsonl).
+    private var sessionsRow: some View {
+        let files = state.sessionFiles()
+        return HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text("SESSIONS")
+                .font(.system(size: 10, weight: .bold))
+                .kerning(1.5)
+                .foregroundStyle(Theme.textTertiary)
+                .frame(width: 92, alignment: .leading)
+            if files.isEmpty {
+                Text("created on first message per topic")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(files, id: \.self) { f in
+                        Text(f)
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
 
     private func row(_ label: String, _ value: String, mono: Bool = false) -> some View {

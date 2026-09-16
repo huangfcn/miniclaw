@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Models tab — on-device MNN inference (port of ios LocalModelsView.swift).
+     Model cards are built programmatically in ModelsTab.kt because their
+     controls change with download/load state. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tab_models_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="32dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Local Models"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Runs on-device via MNN — no network needed once downloaded. Files live in the workspace models/ folder; conversation quality can stay on your remote API."
+            android:textSize="12sp"
+            android:lineSpacingExtra="3dp"
+            android:textColor="@color/text_secondary" />
+
+        <!-- model cards added here by ModelsTab -->
+        <LinearLayout
+            android:id="@+id/models_cards"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="16dp" />
+
+        <TextView
+            android:id="@+id/models_dir"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textSize="11sp"
+            android:textColor="@color/text_tertiary"
+            android:maxLines="2"
+            android:ellipsize="middle" />
+    </LinearLayout>
+</ScrollView>
