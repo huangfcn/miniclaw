@@ -56,6 +56,37 @@ class ModelManager(private val client: EngineClient) {
                 sizeBytes = 1_240_000_000L,
             ),
             LocalModel(
+                id = "qwen3.5-2b",
+                kind = Kind.LLM,
+                name = "Qwen3.5 2B (int4)",
+                blurb = "Stronger chat & talk summarization — vision-language model, all files required.",
+                dirName = "qwen3.5-2b",
+                // Qwen3.5-MNN is a VLM (is_visual: true): the engine loads the
+                // vision tower unconditionally, so visual.mnn + visual.mnn.weight are
+                // mandatory or the load fails.
+                files = listOf(
+                    "llm_config.json", "tokenizer.txt", "llm.mnn",
+                    "visual.mnn", "visual.mnn.weight", "llm.mnn.weight",
+                ),
+                repoUrl = "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/main/",
+                sizeBytes = 1_400_000_000L,
+            ),
+            LocalModel(
+                id = "qwen3.5-4b",
+                kind = Kind.LLM,
+                name = "Qwen3.5 4B (int4)",
+                blurb = "Best local quality — for high-end devices with RAM to spare (~3GB download, slower).",
+                dirName = "qwen3.5-4b",
+                // Same VLM layout as the 2B: visual.mnn + visual.mnn.weight are
+                // mandatory or the load fails.
+                files = listOf(
+                    "llm_config.json", "tokenizer.txt", "llm.mnn",
+                    "visual.mnn", "visual.mnn.weight", "llm.mnn.weight",
+                ),
+                repoUrl = "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/main/",
+                sizeBytes = 3_000_000_000L,
+            ),
+            LocalModel(
                 id = "bge-m3",
                 kind = Kind.EMBEDDING,
                 name = "BGE-M3",

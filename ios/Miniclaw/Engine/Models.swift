@@ -48,6 +48,37 @@ struct LocalModel: Identifiable {
             sizeBytes: 1_240_000_000
         ),
         LocalModel(
+            id: "qwen3.5-2b",
+            kind: .llm,
+            name: "Qwen3.5 2B (int4)",
+            blurb: "Stronger chat & talk summarization — vision-language model, all files required.",
+            dirName: "qwen3.5-2b",
+            // Qwen3.5-MNN is a VLM (is_visual: true): the engine loads the
+            // vision tower unconditionally, so visual.mnn + visual.mnn.weight
+            // are mandatory or the load fails.
+            files: [
+                "llm_config.json", "tokenizer.txt", "llm.mnn",
+                "visual.mnn", "visual.mnn.weight", "llm.mnn.weight",
+            ],
+            repoURL: "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/main/",
+            sizeBytes: 1_400_000_000
+        ),
+        LocalModel(
+            id: "qwen3.5-4b",
+            kind: .llm,
+            name: "Qwen3.5 4B (int4)",
+            blurb: "Best local quality — for high-end iPhones with RAM to spare (~3GB download, slower).",
+            dirName: "qwen3.5-4b",
+            // Same VLM layout as the 2B: visual.mnn + visual.mnn.weight are
+            // mandatory or the load fails.
+            files: [
+                "llm_config.json", "tokenizer.txt", "llm.mnn",
+                "visual.mnn", "visual.mnn.weight", "llm.mnn.weight",
+            ],
+            repoURL: "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/main/",
+            sizeBytes: 3_000_000_000
+        ),
+        LocalModel(
             id: "bge-m3",
             kind: .embedding,
             name: "BGE-M3",

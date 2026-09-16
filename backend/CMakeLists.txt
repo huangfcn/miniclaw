@@ -324,6 +324,32 @@ if(MC_USE_MNN)
       URL https://codeload.github.com/alibaba/MNN/tar.gz/refs/tags/3.6.1
     )
     FetchContent_MakeAvailable(mnn)
+
+    # ── MNN 3.6.1 patches (pinned version — see docs/LOCAL_MODELS.md) ─────
+    # Applied at configure time over the freshly fetched source, so iOS,
+    # Android and desktop builds all get them:
+    #
+    # 1. FileLoader.cpp: offset() used plain fseek(), whose off_t is signed
+    #    32-bit on MinGW — weight files > 2 GiB (Qwen3.5-4B-MNN) failed to
+    #    load past the 2 GiB mark ("ReadQuanData_c return weightLength is 0").
+    #    Use _fseeki64 on Windows like MSVC already did.
+    # 2. tokenizer.hpp/.cpp + nfkc_compat.hpp: BGE-M3 (XLM-RoBERTa) needs
+    #    unigram-Viterbi segmentation (stock MNN does greedy BPE merges →
+    #    cos ≈ 0.65 vs reference) and NFKC normalization (full-width
+    #    punctuation). Without these, embedding quality is unusable.
+    set(_mnn_patches ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mnn-patches)
+    set(_mnn_fileloader ${mnn_SOURCE_DIR}/source/core/FileLoader.cpp)
+    file(READ ${_mnn_fileloader} _mnn_fl_src)
+    string(REPLACE "#if defined(_MSC_VER)\n    return _fseeki64(mFile, offset, SEEK_SET);"
+                   "#if defined(_MSC_VER) || defined(__MINGW32__)\n    return _fseeki64(mFile, offset, SEEK_SET);"
+                   _mnn_fl_src "${_mnn_fl_src}")
+    # NB: quote the content — ';' is CMake's list separator, and an unquoted
+    # expansion would silently strip every semicolon from the source file.
+    file(WRITE ${_mnn_fileloader} "${_mnn_fl_src}")
+    foreach(_f tokenizer.hpp tokenizer.cpp nfkc_compat.hpp)
+        file(COPY ${_mnn_patches}/${_f}
+             DESTINATION ${mnn_SOURCE_DIR}/transformers/llm/engine/src/tokenizer)
+    endforeach()
 endif()
 
 # libcurl — iOS only: the iPhoneOS SDK does not ship curl (unlike macOS), so

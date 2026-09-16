@@ -105,6 +105,37 @@ Larger/smaller options (same layout, drop-in):
 | Qwen3-0.6B | `taobao-mnn/Qwen3-0.6B-MNN` | ~0.4 GB |
 | **Qwen3-1.7B (default)** | `taobao-mnn/Qwen3-1.7B-MNN` | ~1.2 GB |
 | Qwen3-4B | `taobao-mnn/Qwen3-4B-MNN` | ~2.5 GB |
+| Qwen3.5-0.8B / 2B / 4B / 9B | `taobao-mnn/Qwen3.5-*-MNN` | ~0.6 / 1.4 / 2.6 / 5 GB |
+
+**Qwen3.5 note:** the official Qwen3.5-MNN exports are vision-language
+models (`is_visual: true`, mrope, deepstack fusion). The runtime loads the
+vision tower unconditionally, so **all six files** must be present:
+`llm_config.json`, `tokenizer.txt`, `llm.mnn`, `llm.mnn.weight`,
+`visual.mnn`, `visual.mnn.weight` — omitting the visual pair fails the load
+with `Can't open file: .../visual.mnn`. Verified on MNN 3.6.1 (Windows,
+Qwen3.5-2B-MNN and Qwen3.5-4B-MNN): both load and answer correctly
+(`hello`, `Paris`, `2+2=4`, `17*68=1156`, one-sentence summarization);
+embeddings stay tied in `llm.mnn.weight` via `tie_embeddings`, so no
+separate `embeddings_bf16.bin` is needed.
+
+**Qwen3.5-4B note (Windows):** the 4B weight file is ~2.6 GB, so its last
+layers sit at file offsets ≥ 2 GiB. MNN 3.6.1's `FileLoader::offset()` used
+plain `fseek()`, whose `off_t` is signed 32-bit on MinGW — every layer at an
+offset ≥ 2 GiB failed to load (`ReadQuanData_c return weightLength is 0`) while
+everything below 2 GiB worked. Fixed by using `_fseeki64` on MinGW as well:
+
+```cpp
+// source/core/FileLoader.cpp — FileLoader::offset()
+#if defined(_MSC_VER) || defined(__MINGW32__)
+    return _fseeki64(mFile, offset, SEEK_SET);
+#else
+    return fseek(mFile, offset, SEEK_SET);
+#endif
+```
+
+Any model whose `llm.mnn.weight` exceeds ~2 GiB needs this patch on
+Windows/MinGW builds (it is a no-op elsewhere; MSVC already used the 64-bit
+form). The 2B model's weights are 1.2 GB, which is why it worked without it.
 
 ### BGE-M3 (embeddings)
 
@@ -178,9 +209,14 @@ handles both `▁`-prefixed and space-form HF vocab keys.
    codepoint→replacement table (2 972 entries) and applies it before the `▁`
    normalization.
 
-> The MNN build used by the backend is pulled via CMake FetchContent; the
-> patched tokenizer files must be present in `_deps/mnn-src` (a clean
-> re-fetch loses them — re-copy from the patched source tree).
+> **All runtime patches are applied automatically.** The MNN build is pulled
+> via CMake FetchContent (pinned to 3.6.1), and `backend/CMakeLists.txt`
+> applies the runtime patches at configure time by copying the fixed files
+> from [`backend/third_party/mnn-patches/`](../backend/third_party/mnn-patches/)
+> over the fetched source (plus a surgical `fseeki64` fix in
+> `source/core/FileLoader.cpp`). Desktop, iOS and Android builds all get
+> them; no manual re-copy is needed. If you upgrade the pinned MNN version,
+> re-verify that the patch block still applies cleanly.
 
 #### Verified embedding quality
 
@@ -363,3 +399,5 @@ from — all `lib*-*.dll` must come from the same one as the compiler.)
 | First message very slow | Model is loading on first use; tap "Load now" in Models tab to pre-warm. |
 | Metal crashes on old iOS | Set `local.llm_backend: cpu`. |
 | Embedding dimension mismatch after switching models | Delete the memory index (`<workspace>/memory_index/`) — it is rebuilt with the new model's dimensions. |
+| `ReadQuanData_c return weightLength is 0` on Windows, only for large models | Weight file exceeds 2 GiB and MNN's `FileLoader::offset()` used 32-bit `fseek`. Fixed in-tree via the CMake patch block (`_fseeki64`); rebuild after pulling this change. |
+| BGE-M3 embeddings drift (cos < 0.9) against reference | MNN runtime is missing the Viterbi/NFKC tokenizer patches — make sure the build used the `MC_USE_MNN` block from this repo (it applies them at configure time). |
