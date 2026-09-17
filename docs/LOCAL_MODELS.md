@@ -374,6 +374,56 @@ model is verified in [Verified embedding quality](#verified-embedding-quality)
 (`backend/tests/emb_diag.cpp`, links `libminiclaw_core.dll.a`) dumps raw
 MNN embeddings + token ids for direct comparison against HuggingFace.
 
+### macOS (Mac Pro / any Apple desktop)
+
+Same driver, native build. Two differences from Windows: pass
+`-DUSE_SQLITE=ON` (otherwise CMake looks for prebuilt Lucene++/Boost), and
+there is no PATH/DLL gotcha — the driver links `libminiclaw_core.dylib`
+from the build tree automatically.
+
+```sh
+cd backend
+cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DMC_USE_MNN=ON -DUSE_SQLITE=ON
+cmake --build build-mac --target mnn_local_test -j "$(sysctl -n hw.ncpu)"
+```
+
+Models: the **BGE-M3 MNN files are a local conversion artifact** (see
+[Conversion](#conversion-one-time-dev-machine)) — they are *not* on
+HuggingFace, so copy them from the dev machine that ran the conversion:
+
+```sh
+mkdir -p ~/miniclaw-test/models
+cd ~/miniclaw-test/models
+scp -r user@dev-machine:/path/to/bge-m3 .            # ~2 GB (5 files)
+# Qwen3.5 can be copied the same way or re-downloaded on the Mac:
+#   huggingface-cli download taobao-mnn/Qwen3.5-4B-MNN --local-dir qwen3.5-4b
+```
+
+Workspace + run (adjust `llm_model_dir` to whatever you copied):
+
+```sh
+mkdir -p ~/miniclaw-test/workspace
+cat > ~/miniclaw-test/workspace/config.yaml <<EOF
+conversation:
+  provider: mnn
+memory:
+  provider: mnn
+local:
+  llm_model_dir: $HOME/miniclaw-test/models/qwen3.5-4b
+  embedding_model_dir: $HOME/miniclaw-test/models/bge-m3
+EOF
+
+# LLM (expect MNN-LOCAL PASS; 17*68 → 1156)
+backend/build-mac/mnn_local_test ~/miniclaw-test/workspace \
+  "What is 17 * 68? Reply with only the number."
+# Embedding (expect EMBED-LOAD PASS, dim=1024, l2_norm=1.0)
+backend/build-mac/mnn_local_test ~/miniclaw-test/workspace ping embedding
+```
+
+MNN builds CPU-only by default (`MNN_METAL=OFF`); add `-DMNN_METAL=ON` to
+the configure line for the Metal backend on Apple Silicon (not required for
+correctness, only speed).
+
 ### Windows PATH gotcha (0xC0000139)
 
 If a freshly built exe dies with exit code `-1073741511`
