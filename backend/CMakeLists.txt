@@ -173,7 +173,14 @@ if(IOS)
     target_include_directories(faiss SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third-party/omp-stub")
 endif()
 
-option(USE_SQLITE "Use SQLite FTS5 instead of LucenePlusPlus" OFF)
+# Search backend: SQLite FTS5 (FetchContent amalgamation) or Lucene++.
+# Apple (macOS + iOS) is always SQLite — there is no Lucene++ build for
+# Apple, and this keeps Boost out of the Apple toolchain entirely.
+if(APPLE)
+    set(USE_SQLITE ON)
+else()
+    option(USE_SQLITE "Use SQLite FTS5 instead of LucenePlusPlus" OFF)
+endif()
 if(USE_SQLITE)
     add_compile_definitions(USE_SQLITE)
 endif()
@@ -214,16 +221,9 @@ if(NOT ANDROID)
         find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex fiber context)
         include_directories(${Boost_INCLUDE_DIRS})
     elseif(NOT USE_SQLITE)
-        # Non-Windows: Boost is needed only by Lucene++. fiber_pool uses the
-        # vendored C fiber runtime everywhere except Windows, and with
-        # USE_SQLITE=ON there is no Lucene++ either — so e.g. iOS needs no
-        # Boost at all.
-        if(APPLE)
-            set(BOOST_INC "/opt/homebrew/opt/boost/include")
-            include_directories(${BOOST_INC})
-            set(BOOST_LIB "/opt/homebrew/opt/boost/lib")
-            link_directories(${BOOST_LIB})
-        endif()
+        # Linux desktop with Lucene++: Boost is needed only by Lucene++.
+        # fiber_pool uses the vendored C fiber runtime everywhere except
+        # Windows, and Apple never reaches this branch (always SQLite).
         find_package(Boost REQUIRED COMPONENTS filesystem iostreams thread date_time regex)
         include_directories(${Boost_INCLUDE_DIRS})
     endif()
@@ -475,9 +475,6 @@ function(miniclaw_apply_core_target tgt)
                 "-framework Accelerate"
                 "/opt/homebrew/opt/libomp/lib/libomp.dylib"
             )
-            if(NOT USE_SQLITE)
-                target_link_libraries(${tgt} PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
-            endif()
         endif()
     elseif(WIN32)
         target_link_libraries(${tgt} PRIVATE 
@@ -581,8 +578,9 @@ if(MC_JNI)
 endif()
 
 # ── Desktop test executables ────────────────────────────────────────────────
-# Host-only: they build plain executables that link boost/libomp from the
-# desktop toolchain, so they are skipped for Android/iOS device builds.
+# Host-only: they build plain executables that link platform libs (Boost on
+# Windows/Linux-with-Lucene, libomp on macOS) from the desktop toolchain, so
+# they are skipped for Android/iOS device builds.
 if(NOT ANDROID AND NOT IOS)
 if(NOT WIN32)
     add_executable(test_fiber tests/test_fiber.cpp)
@@ -629,7 +627,6 @@ if(APPLE)
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
-    target_link_libraries(test_agent_loop PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_agent_loop PRIVATE 
         ${SEARCH_LIBS}
@@ -680,7 +677,6 @@ if(APPLE)
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
-    target_link_libraries(test_memory_index PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_memory_index PRIVATE 
         ${SEARCH_LIBS}
@@ -734,7 +730,6 @@ if(APPLE)
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
-    target_link_libraries(test_distillation PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_distillation PRIVATE 
         ${SEARCH_LIBS}
@@ -794,7 +789,6 @@ if(APPLE)
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
-    target_link_libraries(test_distillation_real PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_distillation_real PRIVATE 
         ${SEARCH_LIBS}
@@ -854,7 +848,6 @@ if(APPLE)
         "-framework Accelerate"
         "/opt/homebrew/opt/libomp/lib/libomp.dylib"
     )
-    target_link_libraries(test_gmail PRIVATE boost_filesystem boost_iostreams boost_thread boost_date_time boost_regex)
 elseif(WIN32)
     target_link_libraries(test_gmail PRIVATE 
         ${SEARCH_LIBS}

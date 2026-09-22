@@ -325,8 +325,10 @@ resolved inside that single configure:
   Lucene++ (the only non-Windows Boost consumer) is gone, and fiber_pool uses
   the vendored C fiber runtime outside Windows (Boost.Fiber there is a
   Windows-only dependency).
-- **Boost** — not needed on iOS. (macOS desktop builds still need
-  `brew install boost` unless they also pass `-DUSE_SQLITE=ON`.)
+- **Boost** — not needed anywhere on Apple: CMake forces `USE_SQLITE=ON`
+  for all Apple platforms, so macOS desktop builds need no Boost either.
+  (Only Windows requires Boost: fiber_pool uses Boost.Fiber there, and
+  Lucene++ when `USE_SQLITE=OFF`.)
 
 The app mirrors the Android lifecycle: the engine starts when the app
 becomes active and is destroyed when it backgrounds; workspace data lives in

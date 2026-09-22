@@ -376,14 +376,14 @@ MNN embeddings + token ids for direct comparison against HuggingFace.
 
 ### macOS (Mac Pro / any Apple desktop)
 
-Same driver, native build. Two differences from Windows: pass
-`-DUSE_SQLITE=ON` (otherwise CMake looks for prebuilt Lucene++/Boost), and
-there is no PATH/DLL gotcha — the driver links `libminiclaw_core.dylib`
-from the build tree automatically.
+Same driver, native build. No extra flags needed: Apple (macOS + iOS)
+always uses SQLite FTS5 for the memory index, so there is no Lucene++/Boost
+dependency, and there is no PATH/DLL gotcha — the driver links
+`libminiclaw_core.dylib` from the build tree automatically.
 
 ```sh
 cd backend
-cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DMC_USE_MNN=ON -DUSE_SQLITE=ON
+cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DMC_USE_MNN=ON
 cmake --build build-mac --target mnn_local_test -j "$(sysctl -n hw.ncpu)"
 ```
 
@@ -420,9 +420,9 @@ backend/build-mac/mnn_local_test ~/miniclaw-test/workspace \
 backend/build-mac/mnn_local_test ~/miniclaw-test/workspace ping embedding
 ```
 
-MNN builds CPU-only by default (`MNN_METAL=OFF`); add `-DMNN_METAL=ON` to
-the configure line for the Metal backend on Apple Silicon (not required for
-correctness, only speed).
+On Apple platforms the repo's CMake forces `MNN_METAL=ON`, so the Mac Pro
+build uses the Metal backend automatically (CPU fallback remains available
+inside MNN if a layer is not Metal-supported).
 
 ### Windows PATH gotcha (0xC0000139)
 
