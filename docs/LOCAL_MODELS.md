@@ -365,6 +365,20 @@ build/mnn_local_test /tmp/mnn-e2e ping embedding
 build/miniclaw /tmp/mnn-e2e
 ```
 
+Model dirs can also be passed on the command line instead of (or on top of)
+the workspace config — `--llm`/`--emb` merge into `<workspace>/config.yaml`
+via the same `mc_set_string` path the app UI uses (bootstrapping it from
+defaults if absent) and pin `conversation`/`memory` provider to `mnn`, so a
+bare directory is enough:
+
+```sh
+build/mnn_local_test /tmp/mnn-e2e "hi" --llm /path/to/qwen3.5-4b
+build/mnn_local_test /tmp/mnn-e2e ping embedding --emb /path/to/bge-m3
+```
+
+The values persist in `config.yaml` after the run (same as selecting a model
+in the app).
+
 Verified on Windows (MSYS2/ucrt64, MNN 3.6.1 CPU): engine create,
 `mc_local_status`, `mc_local_load("llm")`, streamed local inference
 (correct arithmetic answer), local memory distillation, and the full BGE-M3
@@ -399,25 +413,20 @@ scp -r user@dev-machine:/path/to/bge-m3 .            # ~2 GB (5 files)
 #   huggingface-cli download taobao-mnn/Qwen3.5-4B-MNN --local-dir qwen3.5-4b
 ```
 
-Workspace + run (adjust `llm_model_dir` to whatever you copied):
+Run — pass the model dirs with `--llm`/`--emb`; no YAML editing needed
+(the flags merge into `~/miniclaw-test/workspace/config.yaml`, creating it
+from defaults if absent, and pin the provider to `mnn`):
 
 ```sh
 mkdir -p ~/miniclaw-test/workspace
-cat > ~/miniclaw-test/workspace/config.yaml <<EOF
-conversation:
-  provider: mnn
-memory:
-  provider: mnn
-local:
-  llm_model_dir: $HOME/miniclaw-test/models/qwen3.5-4b
-  embedding_model_dir: $HOME/miniclaw-test/models/bge-m3
-EOF
 
 # LLM (expect MNN-LOCAL PASS; 17*68 → 1156)
 backend/build-mac/mnn_local_test ~/miniclaw-test/workspace \
-  "What is 17 * 68? Reply with only the number."
+  "What is 17 * 68? Reply with only the number." \
+  --llm $HOME/miniclaw-test/models/qwen3.5-4b
 # Embedding (expect EMBED-LOAD PASS, dim=1024, l2_norm=1.0)
-backend/build-mac/mnn_local_test ~/miniclaw-test/workspace ping embedding
+backend/build-mac/mnn_local_test ~/miniclaw-test/workspace ping embedding \
+  --emb $HOME/miniclaw-test/models/bge-m3
 ```
 
 On Apple platforms the repo's CMake forces `MNN_METAL=ON`, so the Mac Pro
