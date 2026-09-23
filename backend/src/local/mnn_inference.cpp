@@ -1,8 +1,7 @@
 // MnnInference — MNN-backed local inference (see mnn_inference.hpp).
 //
-// Compiled into miniclaw_core only when MC_USE_MNN=ON; otherwise every
-// method reports "MNN support not compiled" so the rest of the engine can
-// reference this class unconditionally.
+// Always compiled (agent.cpp references the class unconditionally); with
+// MC_HAVE_MNN undefined every method reports "MNN support not compiled".
 
 #include "local/mnn_inference.hpp"
 

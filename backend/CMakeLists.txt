@@ -305,6 +305,9 @@ if(MC_USE_MNN)
     set(MNN_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(MNN_SEP_BUILD OFF CACHE BOOL "" FORCE)
     set(MNN_BUILD_DEMO OFF CACHE BOOL "" FORCE)
+    # MNN's own LLM demos (llm_demo/embedding_demo/...) default to ON and
+    # don't link in our static config — we test through mnn_local_test.
+    set(MNN_LLM_BUILD_DEMO OFF CACHE BOOL "" FORCE)
     set(MNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
     set(MNN_BUILD_CONVERTER OFF CACHE BOOL "" FORCE)
     set(MNN_BUILD_PROTOBUFFER OFF CACHE BOOL "" FORCE)
@@ -756,7 +759,7 @@ if(ANDROID)
     target_sources(test_distillation PRIVATE src/agent/lapack_android_stub.c)
 endif()
 
-add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp)
+add_executable(test_distillation_real tests/test_distillation_real.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp src/local/mnn_inference.cpp)
 target_include_directories(test_distillation_real PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
@@ -815,7 +818,7 @@ if(ANDROID)
     target_sources(test_distillation_real PRIVATE src/agent/lapack_android_stub.c)
 endif()
 
-add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp)
+add_executable(test_gmail tests/test_gmail.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp src/local/mnn_inference.cpp)
 target_include_directories(test_gmail PRIVATE 
     src
     ${EXTERNAL_DIR}/spdlog/include
