@@ -271,6 +271,10 @@ conversation:
   provider: mnn
   model: qwen3.5-4b
   endpoint: ~/.miniclaw/models/qwen3.5-4b  # same folder as memory (one shared slot)
+
+# --- Optional: MNN backend override (default auto = Metal on Apple) ---
+local:
+  llm_backend: auto                 # auto | metal | cpu
 ```
 
 Provider semantics:
@@ -336,10 +340,29 @@ programmatically over the same C ABI):
 ## Performance notes
 
 - Qwen3-1.7B int4 on an A15/A16-class phone: roughly 8–20 tokens/s on Metal
-  (CPU-only is ~2–5 t/s). Daily-log distillation of a typical session
-  (~2–4 KB) takes a few seconds to ~30 s.
-- BGE-M3 fp16 embeds a paragraph in well under a second on CPU; the memory
-  indexer batches documents, so re-indexing a workspace is fast.
+  (CPU-only is ~2–5 t/s) — Apple builds use Metal by default, see below.
+  Daily-log distillation of a typical session (~2–4 KB) takes a few seconds
+  to ~30 s.
+- BGE-M3 fp16 embeds a paragraph in well under a second on CPU (and faster
+  on Metal); the memory indexer batches documents, so re-indexing a
+  workspace is fast.
+
+### Backend selection (Metal)
+
+MNN's LLM engine defaults to `backend_type: cpu` even when MNN is built
+with Metal. MiniClaw therefore overrides it at load time in
+`MnnInference::load_prefer_metal()`:
+
+| `local.llm_backend` | Apple (macOS / iOS)      | Other platforms |
+| ------------------- | ------------------------ | --------------- |
+| `auto` (default)    | Metal, CPU fallback      | CPU             |
+| `metal`             | Metal, CPU fallback      | CPU (no Metal)  |
+| `cpu`               | CPU                      | CPU             |
+
+Metal shaders are compiled from source at first use (`newLibraryWithSource:`),
+so no `.metallib` resource needs bundling. GPU capability is detected at
+runtime (`supportsFamily:`), so iOS 16 devices without Metal 3/4 simply use
+the non-tensor shader paths.
 - MNN uses mmap for `llm.mnn.weight`, so load time is dominated by model
   rearrange (a few seconds) and RAM usage stays bounded (~1.5–2 GB peak for
   Qwen3-1.7B — fine on 6 GB+ devices; use Qwen3-0.6B on older phones).
@@ -446,9 +469,12 @@ backend/build-mac/mnn_local_test ~/miniclaw-test/workspace ping embedding \
   --emb $HOME/miniclaw-test/models/bge-m3
 ```
 
-On Apple platforms the repo's CMake forces `MNN_METAL=ON`, so the Mac Pro
-build uses the Metal backend automatically (CPU fallback remains available
-inside MNN if a layer is not Metal-supported).
+On Apple platforms the repo's CMake forces `MNN_METAL=ON`, and
+`MnnInference` sets the MNN engine's `backend_type` to `metal` before load
+(MNN's LLM engine defaults to CPU). If a Metal load fails — simulator,
+unsupported GPU — it retries on CPU automatically. Force a choice with
+`local.llm_backend: metal|cpu` in `config.yaml` (`auto` is the default).
+The same logic applies to the BGE-M3 embedding slot.
 
 ### Windows PATH gotcha (0xC0000139)
 

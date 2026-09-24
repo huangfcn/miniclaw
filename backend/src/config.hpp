@@ -236,6 +236,12 @@ public:
     return get<std::string>("local", "embedding_model_dir",
                             "models/bge-m3");
   }
+  // MNN backend for local models: "auto" (default) = Metal on Apple, CPU
+  // elsewhere; "metal" or "cpu" to force. A Metal load failure always falls
+  // back to CPU (see MnnInference::load_prefer_metal).
+  std::string local_llm_backend() const {
+    return get<std::string>("local", "llm_backend", "auto");
+  }
 
   // Web tools
   std::string web_brave_api_key() const {

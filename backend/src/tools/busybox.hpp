@@ -4,6 +4,8 @@
 #include <array>
 #include <memory>
 #include <cstdio>
+#include <cstdlib>
+#include <process.h>
 #include <map>
 #include <filesystem>
 #include <spdlog/spdlog.h>
@@ -27,6 +29,16 @@ public:
 
     std::string execute(const std::string& input) override {
 #if defined(_WIN32)
+        // Force UTF-8 stdout from child processes (notably Windows Python,
+        // which otherwise encodes with the console codepage, e.g. cp1252 —
+        // turning '°' into a raw 0xb0 byte that later breaks LLM JSON).
+        static const bool env_set = [] {
+            _putenv_s("PYTHONUTF8", "1");
+            _putenv_s("PYTHONIOENCODING", "utf-8");
+            return true;
+        }();
+        (void)env_set;
+
         spdlog::info("BusyBoxTool: executing command: {}", input);
         std::string tools_dir = Config::instance().tools_path();
         std::filesystem::path bb_path = std::filesystem::path(tools_dir) / "busybox.exe";

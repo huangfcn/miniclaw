@@ -5,6 +5,7 @@
 
 #include "local/mnn_inference.hpp"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -96,6 +97,35 @@ MnnInference::SlotStatus MnnInference::embedding_status() const {
 
 #ifdef MC_HAVE_MNN
 
+// MNN's LLM engine defaults to backend_type "cpu" (llmconfig.hpp). Apple
+// builds compile MNN with MNN_METAL=ON, so the default (local.llm_backend:
+// auto) prefers the Metal GPU backend there; "cpu"/"metal" force a choice.
+// A failed Metal load always retries on CPU, so a model that loads is one
+// that loads. Works for both Llm and Embedding (Embedding : public Llm
+// shares initRuntime()).
+static bool load_prefer_metal(MNN::Transformer::Llm *model) {
+  std::string want = Config::instance().local_llm_backend();
+  for (auto &c : want) c = (char)std::tolower((unsigned char)c);
+#if defined(__APPLE__)
+  bool try_metal_first = want == "metal" || want == "auto";
+#else
+  bool try_metal_first = want == "metal"; // Metal is not built in elsewhere
+#endif
+  if (try_metal_first) {
+    model->set_config("{\"backend_type\": \"metal\"}");
+    if (model->load()) return true;
+    std::string metal_log = model->getLog();
+    model->set_config("{\"backend_type\": \"cpu\"}");
+    if (model->load()) {
+      spdlog::warn("MNN: Metal backend load failed ({}); falling back to CPU",
+                   metal_log.empty() ? std::string("no log") : metal_log);
+      return true;
+    }
+    return false;
+  }
+  return model->load();
+}
+
 void *MnnInference::ensure_llm(std::string *error) {
   std::lock_guard<std::mutex> lock(llm_.mutex);
   if (llm_.loaded) return llm_.handle;
@@ -144,7 +174,7 @@ void *MnnInference::ensure_llm(std::string *error) {
   auto *llm = MNN::Transformer::Llm::createLLM(config_path);
   bool ok = false;
   try {
-    ok = llm->load();
+    ok = load_prefer_metal(llm);
   } catch (const std::exception &e) {
     llm_.message = std::string("load failed: ") + e.what();
   }
@@ -191,7 +221,7 @@ void *MnnInference::ensure_embedding(std::string *error) {
   auto *emb = MNN::Transformer::Embedding::createEmbedding(config_path, false);
   bool ok = false;
   try {
-    ok = emb->load();
+    ok = load_prefer_metal(emb);
   } catch (const std::exception &e) {
     emb_.message = std::string("load failed: ") + e.what();
   }
