@@ -255,32 +255,48 @@ set programmatically with `mc_set_string`).
 ```yaml
 # --- Summarization / memory distillation (local Qwen) ---
 memory:
-  distillation_provider: mnn        # was: openai / any OpenAI-compatible name
-  distillation_model: qwen3-1.7b    # ignored for mnn; kept for parity
+  provider: mnn                     # was: openai / any OpenAI-compatible name
+  model: qwen3.5-4b                 # ignored for mnn; kept for parity
+  endpoint: ~/.miniclaw/models/qwen3.5-4b   # ← the MNN model folder
 
 # --- Embeddings (local BGE-M3) ---
 embedding:
   provider: mnn
   model: bge-m3                     # ignored for mnn
+  endpoint: ~/.miniclaw/models/bge-m3      # ← the MNN model folder
   dimension: 1024                   # BGE-M3 native dim; MRL truncation still applies
 
 # --- Optional: main conversation local too ---
 conversation:
   provider: mnn
-  model: qwen3-1.7b
-
-# --- Local model locations (relative to workspace) & runtime tuning ---
-local:
-  llm_model_dir: models/qwen3-1.7b
-  embedding_model_dir: models/bge-m3
-  # backend_type: metal             # metal | opencl | cpu (default: auto)
-  # thread_num: 4                   # default: hardware concurrency
+  model: qwen3.5-4b
+  endpoint: ~/.miniclaw/models/qwen3.5-4b  # same folder as memory (one shared slot)
 ```
 
 Provider semantics:
 
-- `provider: mnn` → route to `MnnInference`; `model`/`endpoint` are ignored.
-- Any other value → existing HTTP path, completely unchanged.
+- `provider: mnn` → route to `MnnInference`. The section's `endpoint:` field
+  then doubles as the **local model folder** (absolute path, or relative to
+  the workspace) — e.g. `memory.endpoint: ~/.miniclaw/models/qwen3.5-4b`.
+  `model:` is ignored for mnn.
+- Any other value → existing HTTP path, completely unchanged (`endpoint:` is
+  the API URL as before).
+
+Directory resolution order (first hit wins):
+
+| Slot | 1st choice | Fallback |
+|---|---|---|
+| LLM (chat + summarization share one loaded model) | `conversation.endpoint` when `conversation.provider: mnn`, else `memory.endpoint` when `memory.provider: mnn` | `local.llm_model_dir` |
+| Embedding | `embedding.endpoint` when `embedding.provider: mnn` | `local.embedding_model_dir` |
+
+Endpoints starting with `http://`/`https://` are never treated as folders.
+If both `conversation.endpoint` and `memory.endpoint` point at *different*
+folders, the conversation one wins and a warning is logged (the LLM slot is a
+single loaded model).
+
+The folder must contain `llm_config.json` (+ weights, tokenizer) — MNN reads
+`<folder>/llm_config.json` to discover the architecture; there is no model
+registry, the directory *is* the model.
 
 ## C ABI additions (mobile)
 
@@ -291,8 +307,9 @@ Provider semantics:
 char *mc_local_status(mc_engine *engine);            // caller frees with mc_free_string
 
 // Preload a model in the background (kind = "llm" | "embedding").
-// Uses local.llm_model_dir / local.embedding_model_dir from config.
-// Returns 0 if the load was started, -1 if already loading/loaded or invalid.
+// Resolves the model folder per the table above (endpoint-as-folder first,
+// local.*_model_dir as fallback). Returns 0 if the load was started,
+// -1 if already loading/loaded or invalid.
 int  mc_local_load(mc_engine *engine, const char *kind);
 ```
 

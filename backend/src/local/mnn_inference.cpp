@@ -67,6 +67,15 @@ std::string MnnInference::resolve_dir(const std::string &cfg_value) {
       .string();
 }
 
+// When a section's provider is "mnn", its `endpoint:` field doubles as the
+// local model folder (e.g. memory.endpoint: ~/.miniclaw/models/qwen3.5-4b).
+// Remote endpoints (http://, https://) are never treated as directories.
+static bool endpoint_is_local_dir(const std::string &endpoint) {
+  if (endpoint.empty()) return false;
+  return endpoint.rfind("http://", 0) != 0 &&
+         endpoint.rfind("https://", 0) != 0;
+}
+
 MnnInference::SlotStatus MnnInference::llm_status() const {
   std::lock_guard<std::mutex> lock(llm_.mutex);
   SlotStatus s;
@@ -91,7 +100,38 @@ void *MnnInference::ensure_llm(std::string *error) {
   std::lock_guard<std::mutex> lock(llm_.mutex);
   if (llm_.loaded) return llm_.handle;
 
-  llm_.dir = resolve_dir(Config::instance().local_llm_model_dir());
+  // Directory resolution order (first hit wins):
+  //   1. conversation.endpoint, when conversation.provider == mnn
+  //   2. memory.endpoint,      when memory.provider == mnn
+  //   3. local.llm_model_dir   (legacy / fallback key)
+  const auto &cfg = Config::instance();
+  std::string dir_cfg;
+  if (cfg.conversation_provider() == "mnn" &&
+      endpoint_is_local_dir(cfg.conversation_endpoint())) {
+    dir_cfg = cfg.conversation_endpoint();
+  } else if (cfg.memory_distillation_provider() == "mnn" &&
+             endpoint_is_local_dir(cfg.memory_distillation_endpoint())) {
+    dir_cfg = cfg.memory_distillation_endpoint();
+  } else {
+    dir_cfg = cfg.local_llm_model_dir();
+  }
+  // Both sections may point at different folders, but the LLM slot is a
+  // single loaded model — surface the conflict instead of failing silently.
+  if (cfg.conversation_provider() == "mnn" &&
+      cfg.memory_distillation_provider() == "mnn") {
+    std::string conv_dir = endpoint_is_local_dir(cfg.conversation_endpoint())
+                               ? cfg.conversation_endpoint()
+                               : "";
+    std::string mem_dir = endpoint_is_local_dir(cfg.memory_distillation_endpoint())
+                              ? cfg.memory_distillation_endpoint()
+                              : "";
+    if (!conv_dir.empty() && !mem_dir.empty() && conv_dir != mem_dir) {
+      spdlog::warn(
+          "MNN LLM: conversation.endpoint ({}) and memory.endpoint ({}) differ; "
+          "one shared model slot will use the first", conv_dir, mem_dir);
+    }
+  }
+  llm_.dir = resolve_dir(dir_cfg);
   std::string config_path = llm_.dir + "/llm_config.json";
   if (!std::filesystem::exists(config_path)) {
     llm_.message = "model not found: " + config_path;
@@ -129,7 +169,15 @@ void *MnnInference::ensure_embedding(std::string *error) {
   std::lock_guard<std::mutex> lock(emb_.mutex);
   if (emb_.loaded) return emb_.handle;
 
-  emb_.dir = resolve_dir(Config::instance().local_embedding_model_dir());
+  // Directory resolution order (first hit wins):
+  //   1. embedding.endpoint, when embedding.provider == mnn
+  //   2. local.embedding_model_dir (legacy / fallback key)
+  const auto &cfg = Config::instance();
+  std::string dir_cfg = cfg.embedding_provider() == "mnn" &&
+                              endpoint_is_local_dir(cfg.embedding_endpoint())
+                          ? cfg.embedding_endpoint()
+                          : cfg.local_embedding_model_dir();
+  emb_.dir = resolve_dir(dir_cfg);
   std::string config_path = emb_.dir + "/llm_config.json";
   if (!std::filesystem::exists(config_path)) {
     emb_.message = "model not found: " + config_path;
