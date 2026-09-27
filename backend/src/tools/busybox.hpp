@@ -5,7 +5,10 @@
 #include <memory>
 #include <cstdio>
 #include <cstdlib>
-#include <process.h>
+#if defined(_WIN32)
+#include <process.h>  // _popen/_pclose/_putenv_s — Windows only
+#endif
+#include <fstream>
 #include <map>
 #include <filesystem>
 #include <spdlog/spdlog.h>
