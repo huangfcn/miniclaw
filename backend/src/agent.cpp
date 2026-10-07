@@ -19,6 +19,7 @@
 #include "agent/curl_manager.hpp"
 #include "agent/fiber_pool.hpp"
 #include "agent/subagent.hpp"
+#include "plugins/js_plugin.hpp"
 #include "config.hpp"
 #include "tools/file.hpp"
 #include "tools/gmail.hpp"
@@ -98,6 +99,12 @@ Agent::Agent() {
   loop_->register_tool("spawn", std::make_shared<SpawnTool>(*subagents_));
   loop_->register_tool("gmail", std::make_shared<GmailTool>());
   loop_->register_tool("cron", std::make_shared<CronTool>());
+    // JS tool plugins: <workspace>/plugins/<name>/plugin.{json,js}
+    {
+       plugins::PluginLoader plugin_loader(workspace_);
+       for (auto &t : plugin_loader.load())
+           loop_->register_tool(t->name(), std::move(t));
+    }
 
   // Register memory search tool schema (handled in AgentLoop::process)
   struct MemorySearchTool : public Tool {
