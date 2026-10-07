@@ -21,6 +21,7 @@
 #include "js_engine.hpp"
 
 #include <algorithm>
+#include <ctime>
 #include <curl/curl.h>
 #include <filesystem>
 #include <fstream>
@@ -185,12 +186,12 @@ inline std::string dom_to_json(const simdjson::dom::element &e) {
      }
      if (e.is_string()) {
        std::string_view sv;
-       e.get(sv);
+       if (e.get(sv)) return "null";
        return json_str_esc(sv);
      }
      if (e.is_bool()) {
-       bool b;
-       e.get(b);
+       bool b = false;
+       if (e.get(b)) return "null";
        return b ? "true" : "false";
      }
      if (e.is_number()) {
@@ -274,7 +275,11 @@ public:
            api.now = []() {
               std::time_t t = std::time(nullptr);
               std::tm tm{};
+#if defined(_WIN32)
+              localtime_s(&tm, &t); // MSVC/MinGW: (tm*, time_t*) — reversed args
+#else
               localtime_r(&t, &tm);
+#endif
               char buf[32];
               std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm);
               return std::string(buf);
@@ -331,7 +336,11 @@ public:
        }
 
       void register_all(AgentLoop &loop) {
-          for (auto &t : load()) loop.register_tool(t->name(), std::move(t));
+          for (auto &t : load()) {
+              // capture name before moving t (unspecified arg eval order)
+              std::string name = t->name();
+              loop.register_tool(name, std::move(t));
+          }
        }
 
 private:

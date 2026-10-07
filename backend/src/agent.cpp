@@ -102,8 +102,12 @@ Agent::Agent() {
     // JS tool plugins: <workspace>/plugins/<name>/plugin.{json,js}
     {
        plugins::PluginLoader plugin_loader(workspace_);
-       for (auto &t : plugin_loader.load())
-           loop_->register_tool(t->name(), std::move(t));
+       for (auto &t : plugin_loader.load()) {
+           // NB: capture name BEFORE moving t - argument evaluation order is
+           // unspecified; GCC 15 may evaluate the move first, leaving t empty.
+           std::string name = t->name();
+           loop_->register_tool(name, std::move(t));
+       }
     }
 
   // Register memory search tool schema (handled in AgentLoop::process)

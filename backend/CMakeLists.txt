@@ -932,8 +932,34 @@ if(APPLE)
             "-framework Accelerate"
             "/opt/homebrew/opt/libomp/lib/libomp.dylib"
       )
+elseif(WIN32)
+      target_link_libraries(test_plugins PRIVATE
+            ${SEARCH_LIBS}
+            openblas
+            ws2_32
+            iphlpapi
+            userenv
+            dbghelp
+            gomp
+      )
+      target_link_libraries(test_plugins PRIVATE ${Boost_LIBRARIES})
+else()
+      target_link_libraries(test_plugins PRIVATE
+            ${SEARCH_LIBS}
+            OpenMP::OpenMP_CXX
+            ${BLAS_LAPACK_LIBS}
+      )
+      if(NOT ANDROID)
+          target_link_libraries(test_plugins PRIVATE ${Boost_LIBRARIES})
+      endif()
 endif()
 
+# Deep static-init chain (fiber pool, agent singletons) overflows the default
+# 1MB Windows stack during startup.
+if(WIN32)
+    target_link_options(test_gmail PRIVATE -Wl,--stack,8388608)
+    target_link_options(test_plugins PRIVATE -Wl,--stack,8388608)
+endif()
 
 if(WIN32)
     add_executable(test_busybox tests/test_busybox.cpp)

@@ -1,11 +1,17 @@
 #pragma once
-// QuickJS-based JS engine for tool plugins.
+// QuickJS-based JS engine for tool plugins (quickjs-ng).
 //
-// Thread model: one JsEngine per thread (thread_local) owning one JSRuntime.
-// Each call() creates a fresh JSContext, evaluates the plugin source with an
-// `api` object bound, invokes the handler, and frees the context. Tools run
-// on the fiber pool across worker threads, so no JS state is ever shared
-// between threads and no locking is needed.
+// quickjs-ng ownership rules (see quickjs.h header comment):
+//   - a function taking a JSValue parameter TAKES ownership of it;
+//   - a function taking a JSValueConst parameter does NOT take ownership;
+//   - a function returning a JSValue transfers ownership to the caller.
+// In particular, JS_SetPropertyStr(ctx, obj, name, val) CONSUMES val on
+// every path (success: the property holds it; failure: it is freed inside).
+// Never free a value after passing it to JS_SetPropertyStr.
+//
+// Thread model: process-wide singleton owning one JSRuntime + mutex. Each
+// call() creates a fresh JSContext, evaluates the plugin source with an
+// `api` object bound, invokes the handler, and frees the context.
 //
 // The only host capabilities visible to JS are the `api` binding (see
 // js_plugin.hpp). QuickJS has no filesystem/network by default, so anything
@@ -14,7 +20,9 @@
 #include <quickjs.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -60,10 +68,17 @@ struct JsCallResult {
      std::string error;  // populated on failure
 };
 
+// NOTE: must be a process-wide singleton (NOT thread_local). Tool handlers
+// run on pool fibers, and js_http_fetch suspends the fiber mid-call; the
+// fiber resumes on the curl manager thread. If each OS thread had its own
+// JSRuntime, the JS_Call continuation (JS_FreeValue/JS_FreeContext) would
+// touch the *originating* thread's runtime from a different thread,
+// corrupting QuickJS's GC lists. A single runtime + mutex serializes all
+// JS access, which is the only safe model for a non-thread-safe runtime.
 class JsEngine {
 public:
      static JsEngine &instance() {
-         static thread_local JsEngine eng;
+         static JsEngine eng;
          return eng;
      }
      JsEngine(const JsEngine &) = delete;
@@ -76,10 +91,23 @@ public:
      // Evaluate `source` in a fresh context (with `api` bound), then call the
      // global function `handler` once with a JS object built from `args`.
      // Returns the handler's string result or an error message.
+     //
+     // The whole call (including any fiber suspension inside api.fetch) runs
+     // under the engine lock, so no other thread can touch the runtime while
+     // this JS context is live — even if the current fiber migrates threads.
      JsCallResult call(const std::string &source,
                         const std::string &handler,
                         const std::map<std::string, std::string> &args,
                         const JsApi &api) {
+         std::lock_guard<std::mutex> lk(mu_);
+         return call_unlocked(source, handler, args, api);
+     }
+
+private:
+     JsCallResult call_unlocked(const std::string &source,
+                                 const std::string &handler,
+                                 const std::map<std::string, std::string> &args,
+                                 const JsApi &api) {
          JsCallResult r;
          if (!ensure_runtime()) {
              r.error = "failed to initialize JS runtime";
@@ -150,6 +178,9 @@ public:
              rt_ = nullptr;
          }
      }
+
+     // Serializes all JS runtime access (see class comment).
+     std::mutex mu_;
 
 private:
      JsEngine() = default;
@@ -248,8 +279,10 @@ private:
      }
 
      static JSValue mk_error(JSContext *ctx, const char *msg) {
+         std::string m = msg ? msg : "";
          JSValue e = JS_NewError(ctx);
-         JS_SetPropertyStr(ctx, e, "message", JS_NewStringLen(ctx, msg, 0));
+         JS_SetPropertyStr(ctx, e, "message",
+                            JS_NewStringLen(ctx, m.data(), m.size()));
          return e;
      }
 
@@ -360,13 +393,16 @@ private:
          }
          const char *names[7] = {"fetch", "readFile", "writeFile", "config",
                                   "log", "now", "workspace"};
+         // JS_SetPropertyStr CONSUMES each value (quickjs-ng ownership
+         // rules): the property holds fns[i] on success and the call frees
+         // it on failure. Freeing them again here was a double-free that
+         // corrupted the GC list.
          for (int i = 0; i < 7; ++i)
              JS_SetPropertyStr(ctx, o, names[i], fns[i]);
-         for (auto &f : fns) JS_FreeValue(ctx, f);
          JSValue global = JS_GetGlobalObject(ctx);
+         // Consumes `o` — do not free it afterwards.
          JS_SetPropertyStr(ctx, global, "api", o);
          JS_FreeValue(ctx, global);
-         JS_FreeValue(ctx, o);
          return true;
      }
 
