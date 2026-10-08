@@ -22,19 +22,28 @@ for **life-shaped jobs** that only need network access:
 |---|---|
 | Daily news / finance digest | `web_search` + `web_fetch` (libcurl), cron-scheduled |
 | Email triage | Gmail tool (OAuth in the sandbox, IMAP over libcurl) |
-| Travel & hotel research | search + fetch, partner APIs where available |
+| Travel & hotel research | JS plugin (`travel`) — search + fetch, partner APIs where available |
 | Persistent memory | 3-stage distillation + hybrid vector/keyword search |
 
-**Model strategy** — three independent, config-driven endpoints:
+**Extensible without recompiling** — tools can also be written in plain
+JavaScript: drop a folder in `workspace/plugins/<name>/` (`plugin.json` +
+`plugin.js`) and it's registered at startup, running in a sandboxed
+QuickJS-ng v0.17.0 with a small `api.*` surface (fetch, files, config,
+log). Skills work the same way — `workspace/skills/<name>/SKILL.md` folders
+are parsed and injected into the system prompt. See [docs/PLUGINS.md](docs/PLUGINS.md).
+
+**Model strategy** — three independent, config-driven endpoints, each with
+its own provider:
 
 - `conversation` → a strong API model (the agent's reasoning)
-- `memory` → the distillation model (small tasks; on-device later)
-- `embedding` → the RAG vectorizer (small tasks; on-device later)
+- `memory` → the distillation model
+- `embedding` → the RAG vectorizer
 
-Phase 1 keeps everything on APIs you configure. Phase 2 runs the two small
-models (distillation, embeddings) **on-device** for full privacy of
-background work — the C ABI isolates this, so no app-layer changes are
-needed when it lands.
+All three accept `provider: mnn` for **on-device** inference — Qwen3-1.7B
+(chat/distillation) and BGE-M3 (embeddings) run in-process via MNN, no
+network, no API key ([docs/LOCAL_MODELS.md](docs/LOCAL_MODELS.md)). The
+default stays on the APIs you configure; switching a role to on-device is a
+config change, not an app change.
 
 ## How it learns you
 
@@ -45,8 +54,9 @@ sessions/*.jsonl (raw) ──► memory/YYYY-MM-DD.md (daily summaries)
                               ──► MEMORY.md / USER.md (permanent facts & preferences)
 ```
 
-Retrieval is hybrid — Faiss (vector) + Lucene++ (keyword), reciprocal-rank
-fused with temporal decay. The result compounds: preferences stated once
+Retrieval is hybrid — Faiss (vector) + keyword index (Lucene++, or SQLite
+FTS5 on Apple platforms and via `-DUSE_SQLITE=ON` elsewhere),
+reciprocal-rank fused with temporal decay. The result compounds: preferences stated once
 ("under $120, window seat") become standing context weeks later. And because
 the "brain" is plain files in the app's workspace, **you can read, edit, and
 export everything the agent believes about you.** That inspectability is a
@@ -77,15 +87,19 @@ One C++ engine, three frontends:
 │   • Tauri + React (desktop)      — miniclaw sidecar            │
 │     (thin host over the same C ABI, HTTP/SSE on :9000)         │
 │   • Native Kotlin app (Android)  — in-process, JNI bridge      │
-│   • (planned) native iOS         — in-process, Obj-C++ shim    │
+│   • Native SwiftUI app (iOS)     — in-process, Clang module    │
 ├────────────────────────────────────────────────────────────────┤
 │  C ABI  (backend/src/mobile/agent_api.h — mc_engine_*)         │
 ├────────────────────────────────────────────────────────────────┤
 │  libminiclaw_core — the engine                                 │
 │   • ReAct loop, fiber/scheduler (stackful coroutines + libuv)  │
-│   • Tools: exec (sandboxed on mobile), files, web, gmail,      │
-│     cron, spawn (subagents), memory_search                     │
-│   • Memory: 3-stage distillation, Faiss + Lucene++ hybrid      │
+│   • Tools: exec (sandboxed shell on mobile), bash (BusyBox     │
+│     on Windows), files, web_search/web_fetch, gmail, cron,     │
+│     spawn (subagents), memory_search                           │
+│   • Plugins: JS tools in workspace/plugins/ (QuickJS-ng) +     │
+│     skills from workspace/skills/ (system-prompt injection)    │
+│   • Local models: MNN inference (Qwen3-1.7B, BGE-M3)           │
+│   • Memory: 3-stage distillation, Faiss + Lucene++/SQLite      │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -155,16 +169,19 @@ Full instructions: [ANDROID.md](android/ANDROID.md) (build, emulator, troublesho
 
 ```
 backend/    C++ engine (CMake). src/mobile/ = C ABI + JNI bridge.
-            tools/build_android.sh, test/ (mobile shell + e2e harness).
+            tools/ = build scripts per platform, tests/ = unit + e2e harness.
 frontend/   React + Vite UI, Tauri host (desktop path).
 android/    Native Android app (Kotlin, zero dependencies).
-docs/       Design notes.
+ios/        Native iOS app (SwiftUI, XcodeGen project.yml).
+docs/       Design notes (plugins, local models, memory refinements).
 ```
 
 ## Documentation
 
 - [ANDROID.md](android/ANDROID.md) — building & running the native Android app, emulator guide
 - [MOBILE.md](MOBILE.md) — mobile architecture, sandbox, storage, model strategy, testing
+- [docs/PLUGINS.md](docs/PLUGINS.md) — writing JS tool plugins (QuickJS-ng)
+- [docs/LOCAL_MODELS.md](docs/LOCAL_MODELS.md) — on-device MNN models (Qwen3-1.7B, BGE-M3)
 - [DESIGN_DOC.md](DESIGN_DOC.md) — engine architecture (fibers, ReAct, memory)
 - [backend/IDENTITY.md](backend/IDENTITY.md) — project principles
 
