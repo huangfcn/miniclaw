@@ -1,0 +1,65 @@
+{
+   "name": "travel",
+   "version": "1.0.0",
+   "description": "Flight & train ticket search with price/time comparison (Amadeus live offers, Brave web fallback).",
+   "tools": [
+      {
+         "name": "travel",
+         "description": "Search flight or train tickets and compare prices and times. action=search: fetch offers for a route+date, rank them (price, duration, stops) and return a top-N table with cheapest/fastest highlights. action=rerank: re-sort the last search by price/duration/balance. Requires origin/destination/date (YYYY-MM-DD). Live offers need Amadeus keys in the travel config section; without them it falls back to indicative web results.",
+         "handler": "travel",
+         "parameters": {
+            "type": "object",
+            "properties": {
+               "action": {
+                  "type": "string",
+                  "enum": ["search", "rerank"],
+                  "description": "search = fetch offers for a route+date; rerank = re-sort the last search"
+               },
+               "origin": {
+                  "type": "string",
+                  "description": "Departure airport IATA code for flights (e.g. VIE) or city name for trains"
+               },
+               "destination": {
+                  "type": "string",
+                  "description": "Arrival airport IATA code for flights or city name for trains"
+               },
+               "date": {
+                  "type": "string",
+                  "description": "Departure date YYYY-MM-DD"
+               },
+               "return_date": {
+                  "type": "string",
+                  "description": "Optional return date YYYY-MM-DD (second search is made automatically)"
+               },
+               "transport": {
+                  "type": "string",
+                  "enum": ["flights", "trains"],
+                  "description": "Default: flights"
+               },
+               "pax": {
+                  "type": "integer",
+                  "description": "Passengers, default 1"
+               },
+               "currency": {
+                  "type": "string",
+                  "description": "ISO currency, default from config"
+               },
+               "max": {
+                  "type": "integer",
+                  "description": "Max offers to fetch, default 20"
+               },
+               "sort": {
+                  "type": "string",
+                  "enum": ["balance", "price", "duration"],
+                  "description": "Ranking: balance (default), price, or duration"
+               },
+               "top": {
+                  "type": "integer",
+                  "description": "How many ranked results to show, default 5"
+               }
+            },
+            "required": ["action"]
+         }
+      }
+   ]
+}

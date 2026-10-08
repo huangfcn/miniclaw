@@ -388,6 +388,24 @@ public:
           std::cout << "Skills directory copied from template." << std::endl;
         }
 
+          // Copy plugins directory (JS tool plugins)
+
+          fs::path src_plugins = template_base / "plugins";
+
+          fs::path dst_plugins = workspace / "plugins";
+
+          if (fs::exists(src_plugins) && !fs::exists(dst_plugins)) {
+
+            fs::copy(src_plugins, dst_plugins,
+
+                      fs::copy_options::recursive |
+
+                          fs::copy_options::overwrite_existing);
+
+            std::cout << "Plugins directory copied from template." << std::endl;
+
+          }
+
       } catch (const std::exception &e) {
         std::cerr << "Failed to copy initial workspace files: " << e.what()
                   << std::endl;
@@ -408,11 +426,20 @@ public:
         fs::create_directories(ws / "sessions");
       if (!fs::exists(ws / "skills"))
         fs::create_directories(ws / "skills");
+         if (!fs::exists(ws / "plugins"))
+        fs::create_directories(ws / "plugins");
     } catch (const std::exception &e) {
       std::cerr << "Failed to bootstrap workspace: " << e.what() << std::endl;
     }
   }
 
+
+  // Public string accessor for plugins (wraps private get<T>).
+  std::string get_string(const std::string &section,
+                           const std::string &key,
+                           const std::string &def = "") const {
+       return get<std::string>(section, key, def);
+   }
 private:
   Config() = default;
   YAML::Node config_;

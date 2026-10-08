@@ -235,6 +235,22 @@ else()
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
 endif()
 
+# ── QuickJS (JS engine for tool plugins, vendored) ──────────────────────────
+set(QUICKJS_DIR "${THIRDPARTY_DIR}/quickjs")
+add_library(quickjs STATIC
+     ${QUICKJS_DIR}/quickjs.c
+     ${QUICKJS_DIR}/cutils.c
+     ${QUICKJS_DIR}/libregexp.c
+     ${QUICKJS_DIR}/libunicode.c
+${QUICKJS_DIR}/xsum.c
+)
+set_target_properties(quickjs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+include_directories(${QUICKJS_DIR})
+find_library(MC_ATOMIC_LIB NAMES atomic)
+if(MC_ATOMIC_LIB)
+     target_link_libraries(quickjs PUBLIC ${MC_ATOMIC_LIB})
+endif()
+
 # Platform-specific fiber library
 set(FIBER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber")
 if(WIN32)
@@ -445,6 +461,7 @@ function(miniclaw_apply_core_target tgt)
     target_include_directories(${tgt} PRIVATE ${SEARCH_INCLUDES})
     target_link_libraries(${tgt} PRIVATE 
         uSockets
+        quickjs
         OpenSSL::SSL 
         OpenSSL::Crypto
         CURL::libcurl
@@ -773,6 +790,7 @@ target_include_directories(test_distillation_real PRIVATE
     ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_distillation_real PRIVATE 
+     quickjs
     uSockets
     OpenSSL::SSL 
     OpenSSL::Crypto
@@ -832,6 +850,7 @@ target_include_directories(test_gmail PRIVATE
     ${THIRDPARTY_DIR}/croncpp
 )
 target_link_libraries(test_gmail PRIVATE 
+     quickjs
     uSockets
     OpenSSL::SSL 
     OpenSSL::Crypto
@@ -877,6 +896,70 @@ if(ANDROID)
     target_sources(test_gmail PRIVATE src/agent/lapack_android_stub.c)
 endif()
 
+add_executable(test_plugins tests/test_plugins.cpp src/agent.cpp src/agent/fiber_pool.cpp src/agent/memory_index.cpp src/agent/shutdown.cpp src/agent/cron_service.cpp src/local/mnn_inference.cpp)
+target_include_directories(test_plugins PRIVATE
+      src
+      ${EXTERNAL_DIR}/spdlog/include
+      ${libuv_SOURCE_DIR}/include
+      ${SEARCH_INCLUDES}
+      ${uwebsockets_SOURCE_DIR}/src
+      ${usockets_SOURCE_DIR}/src
+      ${yaml-cpp_SOURCE_DIR}/include
+      ${simdjson_SOURCE_DIR}/include
+      ${simdjson_SOURCE_DIR}/src
+      ${THIRDPARTY_DIR}/croncpp
+)
+target_compile_definitions(test_plugins PRIVATE
+      MC_PLUGIN_TEST_SRC="${CMAKE_SOURCE_DIR}/../frontend/src-tauri/resources/workspace/plugins"
+)
+target_link_libraries(test_plugins PRIVATE
+      quickjs
+      uSockets
+      OpenSSL::SSL
+      OpenSSL::Crypto
+      CURL::libcurl
+      ZLIB::ZLIB
+      ${PTHREAD_LIB}
+      yaml-cpp
+      simdjson
+      uv_a
+      ${FIBER_LIBS}
+      faiss
+)
+if(APPLE)
+      target_link_libraries(test_plugins PRIVATE
+            ${SEARCH_LIBS}
+            "-framework Accelerate"
+            "/opt/homebrew/opt/libomp/lib/libomp.dylib"
+      )
+elseif(WIN32)
+      target_link_libraries(test_plugins PRIVATE
+            ${SEARCH_LIBS}
+            openblas
+            ws2_32
+            iphlpapi
+            userenv
+            dbghelp
+            gomp
+      )
+      target_link_libraries(test_plugins PRIVATE ${Boost_LIBRARIES})
+else()
+      target_link_libraries(test_plugins PRIVATE
+            ${SEARCH_LIBS}
+            OpenMP::OpenMP_CXX
+            ${BLAS_LAPACK_LIBS}
+      )
+      if(NOT ANDROID)
+          target_link_libraries(test_plugins PRIVATE ${Boost_LIBRARIES})
+      endif()
+endif()
+
+# Deep static-init chain (fiber pool, agent singletons) overflows the default
+# 1MB Windows stack during startup.
+if(WIN32)
+    target_link_options(test_gmail PRIVATE -Wl,--stack,8388608)
+    target_link_options(test_plugins PRIVATE -Wl,--stack,8388608)
+endif()
 
 if(WIN32)
     add_executable(test_busybox tests/test_busybox.cpp)

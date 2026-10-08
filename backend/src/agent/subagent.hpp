@@ -13,6 +13,7 @@
 #include "session.hpp"
 #include "../tools/terminal.hpp"
 #include "../tools/file.hpp"
+#include "../plugins/js_plugin.hpp"
 #include "../tools/web.hpp"
 #include "agent.hpp"
 
@@ -71,6 +72,13 @@ private:
                 sub_loop.register_tool("list_dir",   std::make_shared<ListDirTool>());
                 sub_loop.register_tool("web_search", std::make_shared<WebSearchTool>());
                 sub_loop.register_tool("web_fetch",  std::make_shared<WebFetchTool>());
+                    // JS tool plugins (same as the main loop)
+                    plugins::PluginLoader sub_plugins(d->self->workspace_);
+                    for (auto &t : sub_plugins.load()) {
+                        // capture name before moving t (unspecified arg eval order)
+                        std::string name = t->name();
+                        sub_loop.register_tool(name, std::move(t));
+                    }
 
                 Session sub_session;
                 sub_session.key = "subagent:" + d->task_id;
