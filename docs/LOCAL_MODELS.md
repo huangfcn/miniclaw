@@ -212,7 +212,7 @@ handles both `▁`-prefixed and space-form HF vocab keys.
 > **All runtime patches are applied automatically.** The MNN build is pulled
 > via CMake FetchContent (pinned to 3.6.1), and `backend/CMakeLists.txt`
 > applies the runtime patches at configure time by copying the fixed files
-> from [`backend/third_party/mnn-patches/`](../backend/third_party/mnn-patches/)
+> from [`backend/third-party/mnn-patches/`](../backend/third-party/mnn-patches/)
 > over the fetched source (plus a surgical `fseeki64` fix in
 > `source/core/FileLoader.cpp`). Desktop, iOS and Android builds all get
 > them; no manual re-copy is needed. If you upgrade the pinned MNN version,

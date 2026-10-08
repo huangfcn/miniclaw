@@ -235,16 +235,29 @@ else()
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third-party/fiber/include)
 endif()
 
-# ── QuickJS (JS engine for tool plugins, vendored) ──────────────────────────
-set(QUICKJS_DIR "${THIRDPARTY_DIR}/quickjs")
+# ── QuickJS-ng v0.17.0 (JS engine for tool plugins) ────────────────────────
+# Fetched source-only (no MakeAvailable: upstream's CMakeLists also builds
+# the qjs/qjsc CLIs and test binaries we don't need). Upgrade = bump tag.
+# Ownership rules: a JSValue parameter is CONSUMED by the callee; a
+# JSValueConst parameter is not (see quickjs.h header comment).
+set(QUICKJS_TAG v0.17.0)
+FetchContent_Declare(
+  quickjs
+  URL https://codeload.github.com/quickjs-ng/quickjs/tar.gz/refs/tags/${QUICKJS_TAG}
+)
+FetchContent_GetProperties(quickjs)
+if(NOT quickjs_POPULATED)
+  FetchContent_Populate(quickjs)
+endif()
+set(QUICKJS_DIR "${quickjs_SOURCE_DIR}")
 add_library(quickjs STATIC
      ${QUICKJS_DIR}/quickjs.c
-     ${QUICKJS_DIR}/cutils.c
+     ${QUICKJS_DIR}/dtoa.c
      ${QUICKJS_DIR}/libregexp.c
      ${QUICKJS_DIR}/libunicode.c
-${QUICKJS_DIR}/xsum.c
 )
 set_target_properties(quickjs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_definitions(quickjs PRIVATE _GNU_SOURCE)
 include_directories(${QUICKJS_DIR})
 find_library(MC_ATOMIC_LIB NAMES atomic)
 if(MC_ATOMIC_LIB)
@@ -356,7 +369,7 @@ if(MC_USE_MNN)
     #    unigram-Viterbi segmentation (stock MNN does greedy BPE merges →
     #    cos ≈ 0.65 vs reference) and NFKC normalization (full-width
     #    punctuation). Without these, embedding quality is unusable.
-    set(_mnn_patches ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mnn-patches)
+    set(_mnn_patches ${CMAKE_CURRENT_SOURCE_DIR}/third-party/mnn-patches)
     set(_mnn_fileloader ${mnn_SOURCE_DIR}/source/core/FileLoader.cpp)
     file(READ ${_mnn_fileloader} _mnn_fl_src)
     string(REPLACE "#if defined(_MSC_VER)\n    return _fseeki64(mFile, offset, SEEK_SET);"

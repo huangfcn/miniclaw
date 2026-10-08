@@ -1,9 +1,10 @@
 # Writing a JS Tool Plugin
 
 MiniClaw tools can be written in plain JavaScript. Plugins run inside
-**QuickJS** (interpreted, no JIT — App Store / Play compliant), are loaded
-automatically at startup, and expose their tools to the agent exactly like
-built-in C++ tools.
+**QuickJS-ng v0.17.0** (vendored in `backend/third-party/quickjs`;
+interpreted, no JIT — App Store / Play compliant), are loaded automatically
+at startup, and expose their tools to the agent exactly like built-in C++
+tools.
 
 A plugin has **no access to the host** except through the `api` object
 documented below: no filesystem, no network, no process, no `require`.
@@ -174,7 +175,9 @@ under a folder with your plugin's name.
 **Available:** standard ECMAScript builtins — `JSON`, `Math`, `Date`,
 `RegExp`, `Array`, `Map`, `Set`, `Promise` (but see note), template
 literals, arrow functions, destructuring, spread, `String.prototype.*`,
-etc.
+etc. v0.17.0 tracks modern ES, so recent features work too: iterator
+helpers (`toSorted`, `toReversed`, `flatMapToSorted`, `Iterator.zip`),
+`Object.groupBy` / `Map.groupBy`, `Array.fromAsync`, and friends.
 
 **Not available:**
 
