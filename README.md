@@ -54,8 +54,8 @@ sessions/*.jsonl (raw) ──► memory/YYYY-MM-DD.md (daily summaries)
                               ──► MEMORY.md / USER.md (permanent facts & preferences)
 ```
 
-Retrieval is hybrid — Faiss (vector) + keyword index (Lucene++, or SQLite
-FTS5 on Apple platforms and via `-DUSE_SQLITE=ON` elsewhere),
+Retrieval is hybrid — Faiss (vector) + SQLite FTS5 keyword index (default
+on every platform; Lucene++ remains available via `-DUSE_SQLITE=OFF`),
 reciprocal-rank fused with temporal decay. The result compounds: preferences stated once
 ("under $120, window seat") become standing context weeks later. And because
 the "brain" is plain files in the app's workspace, **you can read, edit, and
@@ -99,7 +99,7 @@ One C++ engine, three frontends:
 │   • Plugins: JS tools in workspace/plugins/ (QuickJS-ng) +     │
 │     skills from workspace/skills/ (system-prompt injection)    │
 │   • Local models: MNN inference (Qwen3-1.7B, BGE-M3)           │
-│   • Memory: 3-stage distillation, Faiss + Lucene++/SQLite      │
+│   • Memory: 3-stage distillation, Faiss + SQLite FTS5          │
 └────────────────────────────────────────────────────────────────┘
 ```
 

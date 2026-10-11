@@ -77,7 +77,7 @@ Agent::Agent() {
   };
 
   loop_ = std::make_unique<AgentLoop>(workspace_, llm_fn, embed_fn,
-                                      /*max_iterations=*/10);
+                                      Config::instance().agent_max_iterations());
   sessions_ = std::make_unique<SessionManager>(workspace_);
   subagents_ = std::make_unique<SubagentManager>(workspace_, llm_fn, embed_fn);
 

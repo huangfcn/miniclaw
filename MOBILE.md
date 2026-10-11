@@ -41,7 +41,7 @@ that swap.
 
 **The learning loop.** Every conversation feeds 3-stage distillation:
 `sessions/*.jsonl` → `memory/YYYY-MM-DD.md` (daily) → `MEMORY.md` /
-`USER.md` (permanent). Retrieval is hybrid Faiss + Lucene++ with reciprocal
+`USER.md` (permanent). Retrieval is hybrid Faiss + SQLite FTS5 with reciprocal
 rank fusion and temporal decay. The brain is plain files in the workspace —
 readable, editable, exportable. That inspectability is the trust story no
 cloud assistant can match: the user can open `MEMORY.md` and see exactly
@@ -66,7 +66,7 @@ is shared:
 │        │  C ABI (backend/src/mobile/agent_api.h — mc_engine_*)      │
 │  libminiclaw_core.so / .dylib  ← the C++ engine                     │
 │    • ReAct loop + tools (sandboxed, no shell)                       │
-│    • Memory: 3-stage distillation, Faiss + Lucene++ hybrid search   │
+│    • Memory: 3-stage distillation, Faiss + SQLite FTS5 hybrid search │
 │    • Fibers, cron, skills                                           │
 │    • Optional on-device MNN inference (chat + embeddings)          │
 └─────────────────────────────── Phone ───────────────────────────────┘
@@ -325,10 +325,11 @@ resolved inside that single configure:
   Lucene++ (the only non-Windows Boost consumer) is gone, and fiber_pool uses
   the vendored C fiber runtime outside Windows (Boost.Fiber there is a
   Windows-only dependency).
-- **Boost** — not needed anywhere on Apple: CMake forces `USE_SQLITE=ON`
-  for all Apple platforms, so macOS desktop builds need no Boost either.
+- **Boost** — not needed anywhere on Apple: CMake defaults to SQLite FTS5
+  for the memory index on every platform (forced `USE_SQLITE=ON` on Apple),
+  so macOS desktop builds need no Boost either.
   (Only Windows requires Boost: fiber_pool uses Boost.Fiber there, and
-  Lucene++ when `USE_SQLITE=OFF`.)
+  Lucene++ only when explicitly enabled with `USE_SQLITE=OFF`.)
 
 The app mirrors the Android lifecycle: the engine starts when the app
 becomes active and is destroyed when it backgrounds; workspace data lives in

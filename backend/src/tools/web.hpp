@@ -6,8 +6,9 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <regex>
 #include <sstream>
+#include <cstring>
+#include <cctype>
 #include <simdjson.h>
 #include <curl/curl.h>
 #include <fiber.hpp>
@@ -150,12 +151,67 @@ public:
     }
 
 private:
-    std::string strip_html(std::string html) {
-        html = std::regex_replace(html, std::regex("<script[\\s\\S]*?</script>", std::regex::icase), "");
-        html = std::regex_replace(html, std::regex("<style[\\s\\S]*?</style>", std::regex::icase), "");
-        html = std::regex_replace(html, std::regex("<[^>]+>"), " ");
-        html = std::regex_replace(html, std::regex("[ \\t]+"), " ");
-        html = std::regex_replace(html, std::regex("\\n{2,}"), "\n\n");
-        return html;
+    // Case-insensitive find of `needle` in s starting at pos.
+    static size_t find_ci(const std::string& s, const char* needle, size_t pos) {
+        size_t nl = strlen(needle);
+        for (size_t i = pos; i + nl <= s.size(); ++i) {
+            bool ok = true;
+            for (size_t j = 0; j < nl; ++j)
+                if (tolower((unsigned char)s[i + j]) != tolower((unsigned char)needle[j])) { ok = false; break; }
+            if (ok) return i;
+        }
+        return std::string::npos;
+    }
+
+    // Linear-time HTML -> text. The old std::regex version (<script[\s\S]*?</script>)
+    // recursed per character in libstdc++'s backtracking engine and overflowed the
+    // thread stack on multi-MB pages (SIGSEGV in _Executor::_M_dfs).
+    static std::string strip_html(std::string html) {
+        std::string out;
+        out.reserve(html.size() / 4 + 64);
+        size_t i = 0, n = html.size();
+        while (i < n) {
+            char c = html[i];
+            if (c == '<') {
+                // Find the end of this tag.
+                size_t end = html.find('>', i);
+                if (end == std::string::npos) { out += ' '; break; } // stray '<'
+                std::string tag = html.substr(i, end - i);
+                // Case-insensitive prefix check for script/style blocks.
+                auto starts_with_ci = [&](const char* w) {
+                    size_t wl = strlen(w);
+                    if (tag.size() < wl + 1) return false; // need "<" + word
+                    for (size_t k = 1; k <= wl; ++k)
+                        if (tolower((unsigned char)tag[k]) != tolower((unsigned char)w[k - 1])) return false;
+                    // Word occupies tag[1..wl]; boundary is tag[wl+1] or the closing '>'.
+                    char nxt = (tag.size() > wl + 1) ? tag[wl + 1] : '>';
+                    return nxt == ' ' || nxt == '\t' || nxt == '\n' || nxt == '\r' || nxt == '/' ;
+                };
+                if (starts_with_ci("script") || starts_with_ci("style")) {
+                    // Skip to the matching closing tag.
+                    std::string close = std::string("</") + (starts_with_ci("script") ? "script" : "style");
+                    size_t cp = find_ci(html, close.c_str(), end);
+                    if (cp == std::string::npos) { break; } // unterminated: drop the rest
+                    size_t ce = html.find('>', cp);
+                    i = (ce == std::string::npos) ? n : ce + 1;
+                    continue;
+                }
+                out += ' ';
+                i = end + 1;
+                continue;
+            }
+            out += c;
+            ++i;
+        }
+        // Compress whitespace: runs of spaces/tabs -> one space; 3+ newlines -> two.
+        std::string res;
+        res.reserve(out.size());
+        int blank_run = 0, nl_run = 0;
+        for (char c : out) {
+            if (c == ' ' || c == '\t') { if (blank_run == 0 && !res.empty()) res += ' '; blank_run++; nl_run = 0; }
+            else if (c == '\n') { nl_run++; blank_run = 0; if (nl_run <= 2) res += c; }
+            else { res += c; blank_run = 0; nl_run = 0; }
+        }
+        return res;
     }
 };

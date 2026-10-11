@@ -220,10 +220,11 @@ public:
           std::string params = spec_.parameters_json.empty()
                                     ? "{\"type\":\"object\",\"properties\":{}}"
                                     : spec_.parameters_json;
-          return "{\"type\":\"function\",\"function\":{\"name\":\"" +
+          // json_str_esc already emits a fully-quoted JSON string literal.
+          return "{\"type\":\"function\",\"function\":{\"name\":" +
                     json_str_esc(spec_.name) +
-                    "\",\"description\":\"" + json_str_esc(spec_.description) +
-                    "\",\"parameters\":" + params + "}}";
+                    ",\"description\":" + json_str_esc(spec_.description) +
+                    ",\"parameters\":" + params + "}}";
        }
 
       std::string execute(const std::string &) override {

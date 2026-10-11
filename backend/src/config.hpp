@@ -104,6 +104,14 @@ public:
     return get<std::string>("conversation", "api_key", "XXXXXXXX");
   }
 
+  // Max tool-call iterations per agent turn. Multi-step workflows (trip
+  // planning: search + research + write) need far more than simple Q&A.
+  int agent_max_iterations() const {
+    if (config_["agent"] && config_["agent"]["max_iterations"])
+      return config_["agent"]["max_iterations"].as<int>();
+    return 25;
+  }
+
   // Memory
   std::string memory_workspace() const {
     const char *env_ws = std::getenv("WORKSPACE_DIR");

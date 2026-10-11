@@ -61,6 +61,16 @@ public:
 
         {
             std::ofstream out(script_path);
+            // Run commands from the workspace, not the process CWD (which is
+            // an implementation detail); single quotes in the path are closed,
+            // escaped, reopened so odd workspace dirs still work.
+            std::string ws = Config::instance().memory_workspace();
+            std::string ws_q;
+            for (char c : ws) {
+                if (c == '\'') ws_q += "'\\''";
+                else ws_q += c;
+            }
+            out << "cd '" << ws_q << "' 2>/dev/null || true\n";
             out << input << "\n";
         }
 

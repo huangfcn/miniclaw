@@ -80,6 +80,31 @@ function fmt_min(min) {
      return h > 0 ? (m > 0 ? h + "h" + m + "m" : h + "h") : m + "m";
 }
 
+// ─── date helpers (UTC, ISO YYYY-MM-DD) ─────────────────────────────────
+function add_days(iso, n) {
+     const t = Date.parse(iso + "T00:00:00Z");
+     if (isNaN(t)) throw new Error("bad date: " + iso);
+     return new Date(t + n * 86400000).toISOString().slice(0, 10);
+}
+
+function weekday(iso) {
+     const t = Date.parse(iso + "T00:00:00Z");
+     if (isNaN(t)) return "?";
+     return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+         new Date(t).getUTCDay()];
+}
+
+function day_count(a, b) { // inclusive; 0 on bad input
+     const t0 = Date.parse(a + "T00:00:00Z"), t1 = Date.parse(b + "T00:00:00Z");
+     if (isNaN(t0) || isNaN(t1) || t1 < t0) return 0;
+     return Math.round((t1 - t0) / 86400000) + 1;
+}
+
+function valid_iso_date(iso) {
+     return typeof iso === "string" &&
+            !isNaN(Date.parse(iso + "T00:00:00Z"));
+}
+
 // ─── Amadeus OAuth ────────────────────────────────────────────────────────
 let _amadeus_token = "";
 let _amadeus_expires = 0;
@@ -359,6 +384,8 @@ function travel(args) {
      const sort = args.sort || "balance";
      const topN = Math.min(Math.max(parseInt(args.top, 10) || 5, 1), 10);
 
+     if (action === "plan") return plan_trip(args);
+
      if (action === "rerank") {
           const last = load_last();
           if (!last || !last.offers)
@@ -444,5 +471,134 @@ function travel_fallback_result(origin, dest, date, transport, maxn,
           o.push("");
           o.push("No live offers available: " + fb.note);
      }
+     return o.join("\n");
+}
+
+// ─── action=plan — trip planner ────────────────────────────────────────────
+// Searches round-trip tickets, then emits a dated plan framework (tickets,
+// budget worksheet, day-by-day skeleton, research checklist, next steps) for
+// the assistant to complete with web_search + write_file in the same turn.
+function cheapest_price(offers) {
+     let c = 0;
+     for (const x of offers)
+         if (x.price > 0 && (c === 0 || x.price < c)) c = x.price;
+     return c;
+}
+
+function plan_trip(args) {
+     const origin = args.origin || "";
+     const dest = args.destination || "";
+     const date = args.date || "";
+     if (!origin)
+          return "Error: plan needs 'origin' (the city the trip starts from). If the user never told you where they depart from, ASK them instead of guessing. Use an IATA code like PEK or a city name.";
+     if (!dest)
+          return "Error: plan needs 'destination' (city or IATA code, e.g. LXA for Lhasa).";
+     if (!date)
+          return "Error: plan needs 'date' — first day of the trip, YYYY-MM-DD. If the user only said a month, pick a sensible start date and say so.";
+     if (!valid_iso_date(date))
+          return "Error: date must be YYYY-MM-DD (got '" + date + "').";
+
+     let days = parseInt(args.days, 10) || 0;
+     let return_date = args.return_date || "";
+     if (return_date && !valid_iso_date(return_date))
+          return "Error: return_date must be YYYY-MM-DD (got '" + return_date + "').";
+     if (return_date) {
+          const n = day_count(date, return_date);
+          if (n <= 0)
+               return "Error: return_date (" + return_date + ") must not be before date (" + date + ").";
+          days = n;
+     }
+     if (days < 1) days = 7;
+     if (days > 60) days = 60;
+     if (!return_date) return_date = add_days(date, days - 1);
+
+     const transport = args.transport === "trains" ? "trains" : "flights";
+     const pax = Math.max(1, parseInt(args.pax, 10) || 1);
+     const sort = args.sort || "balance";
+     const interests = args.interests || "sights, food, culture";
+     const kind = transport === "trains" ? "train" : "flight";
+
+     // tickets both ways (best effort — the plan works without them too)
+     let out_offers = [], back_offers = [], ticket_err = "";
+     try {
+          out_offers = transport === "trains"
+              ? search_trains(origin, dest, date, pax, 20)
+              : search_flights(origin, dest, date, pax, 20);
+          back_offers = transport === "trains"
+              ? search_trains(dest, origin, return_date, pax, 20)
+              : search_flights(dest, origin, return_date, pax, 20);
+     } catch (e) {
+          ticket_err = String(e);
+          api.log("plan ticket search failed: " + e);
+     }
+
+     const o = [];
+     o.push("## TRIP PLAN FRAMEWORK — " + origin + " → " + dest + ", " +
+            date + " → " + return_date + " (" + days + " days, " + pax + " pax)");
+     o.push("");
+
+     o.push("### 1. Ticket shortlist");
+     if (out_offers.length || back_offers.length) {
+          o.push(render(out_offers, sort, 3, origin, dest, date, transport));
+          o.push("");
+          o.push(render(back_offers, sort, 3, dest, origin, return_date, transport));
+          const co = cheapest_price(out_offers), cb = cheapest_price(back_offers);
+          if (co > 0 && cb > 0) {
+              const cur = (out_offers[0] && out_offers[0].currency) || cfg("currency") || "";
+              o.push("");
+              o.push("**Cheapest round trip:** " + (co + cb).toFixed(0) + " " + cur +
+                     " (outbound " + co.toFixed(0) + " + return " + cb.toFixed(0) + ")");
+          }
+     } else {
+          o.push("No live offers" + (ticket_err ? " (" + ticket_err + ")" : "") +
+                 ". Estimate " + kind + " prices via web_search: \"" + kind + "s " +
+                 origin + " to " + dest + " " + date.slice(0, 7) + "\".");
+     }
+     o.push("");
+
+     o.push("### 2. Budget worksheet — replace every ? with a researched estimate");
+     o.push("| Item | Estimate | Basis |");
+     o.push("|------|----------|-------|");
+     const co2 = cheapest_price(out_offers), cb2 = cheapest_price(back_offers);
+     o.push("| " + kind + "s round trip × " + pax + " | " +
+            (co2 > 0 && cb2 > 0 ? (co2 + cb2).toFixed(0) : "?") +
+            " | " + (co2 > 0 && cb2 > 0 ? "live offers above" : "web_search") + " |");
+     o.push("| Lodging (" + Math.max(days - 1, 1) + " nights) | ? | web_search typical price/night in " + dest + " (" + date.slice(0, 7) + ") |");
+     o.push("| Food (" + days + " days × " + pax + ") | ? | web_search daily food cost |");
+     o.push("| Activities / entry fees | ? | sum of researched sights |");
+     o.push("| Local transport | ? | web_search (transit pass / driver / rental) |");
+     o.push("| Visa / permits / insurance | ? | research destination rules |");
+     o.push("");
+
+     o.push("### 3. Day-by-day skeleton — fill morning / afternoon / evening + meals + rough cost for EVERY day");
+     for (let i = 0; i < days; i++) {
+          const d = add_days(date, i);
+          let tag = "";
+          if (i === 0) tag = " — travel day " + origin + " → " + dest + "; arrival, gentle start (acclimatize if high altitude)";
+          else if (i === days - 1) tag = " — return day " + dest + " → " + origin + "; keep morning light, leave for the " + (transport === "trains" ? "station" : "airport");
+          o.push("- **Day " + (i + 1) + "** " + weekday(d) + " " + d + tag);
+     }
+     o.push("");
+
+     o.push("### 4. Destination research checklist — verify with web_search, never guess");
+     o.push("- Entry rules for " + dest + " in " + date.slice(0, 7) + ": visa, region permits / guided-tour requirements, regions closed that season");
+     o.push("- Weather for the dates + packing list; altitude sickness plan if destination is high");
+     o.push("- Top sights matching interests (" + interests + "); check advance-booking needs and weekly closing days for EACH sight");
+     o.push("- Lodging area + 2–3 concrete options for the dates");
+     o.push("- Local transport: airport/station → city, city transit, day-trip options");
+     o.push("- Booking order & lead times (what must be booked first)");
+     o.push("");
+
+     o.push("### 5. NEXT STEPS for the assistant — complete the plan NOW, in this turn");
+     o.push("1. Research every checklist item with web_search (if unavailable, web_fetch result pages or state the gap honestly).");
+     o.push("2. Fill every day of the skeleton: morning / afternoon / evening, meals, travel legs, rough cost per day. Respect closing days and booking order.");
+     o.push("3. Complete the budget table (number + one-line basis per row) and give a total.");
+     o.push("4. Save the finished plan with write_file to \"travel/" + dest + "-trip-plan-" + date + ".md\".");
+     o.push("5. Reply with a short summary (route, dates, total budget, 2–3 highlights) and note the saved file.");
+
+     save_last({
+         origin: origin, dest: dest, date: date, transport: transport,
+         sort: sort, offers: out_offers.concat(back_offers || []),
+     });
      return o.join("\n");
 }

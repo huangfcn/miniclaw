@@ -8,6 +8,7 @@
 #include "agent_api.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <fstream>
@@ -311,6 +312,12 @@ public:
   // files and the memory index simple to reason about.
   std::mutex turn_mutex;
   std::atomic<bool> running{false};
+  // Number of mc_send_message turn threads that may still touch this engine
+  // (including waiting on turn_mutex). mc_engine_destroy waits for this to
+  // reach zero before tearing down, so a late sender can never use a freed
+  // engine. Incremented by the sender *before* checking `running` (paired
+  // seq_cst) so destroy can never miss an in-flight sender.
+  std::atomic<int> active_turns{0};
 
   void set_error(const std::string &msg) {
     spdlog::error("[mobile] {}", msg);
@@ -319,47 +326,52 @@ public:
 };
 
 // Run one agent turn on a FiberPool fiber, serializing via the engine's
-// turn mutex. The completion condition variable is signaled when the
-// "done"/"error" event fires or the turn throws.
+// turn mutex. The completion state is shared_ptr-owned because the agent
+// may emit events *after* the "done"/"error" event (e.g. distillation
+// summaries); those late events run on the fiber while this function's
+// waiting thread may already have returned. Stack-captured sync primitives
+// would dangle (use-after-free in pthread_mutex_lock).
 void run_turn(McEngine *engine, const std::string &session_id,
               const std::string &message, mc_event_cb cb, void *user_data) {
-  std::mutex mtx;
-  std::condition_variable cv;
-  bool finished = false;
+  struct TurnState {
+    std::mutex m;
+    std::condition_variable cv;
+    bool finished = false;
+  };
+  auto st = std::make_shared<TurnState>();
 
-  AgentEventCallback on_event = [&mtx, &cv, &finished, cb, user_data](
-                                     const AgentEvent &e) {
+  AgentEventCallback on_event = [st, cb, user_data](const AgentEvent &e) {
     if (cb) cb(user_data, e.type.c_str(), e.content.c_str());
     if (e.type == "done" || e.type == "error") {
-      std::lock_guard<std::mutex> lock(mtx);
-      finished = true;
-      cv.notify_all();
+      std::lock_guard<std::mutex> lock(st->m);
+      st->finished = true;
+      st->cv.notify_all();
     }
   };
 
   // Block until we own the turn slot, then dispatch to a fiber.
   engine->turn_mutex.lock();
-  spawn_in_fiber([engine, session_id, message, on_event, cb, user_data, &mtx,
-                  &cv, &finished]() {
-    try {
-      engine->agent->run(message, session_id, on_event);
-    } catch (const std::exception &e) {
-      if (cb) cb(user_data, "error", e.what());
-      std::lock_guard<std::mutex> lock(mtx);
-      finished = true;
-      cv.notify_all();
-    } catch (...) {
-      if (cb) cb(user_data, "error", "Unknown error in agent turn");
-      std::lock_guard<std::mutex> lock(mtx);
-      finished = true;
-      cv.notify_all();
-    }
-  });
-
-  // Wait for the turn to finish before releasing the slot.
   {
-    std::unique_lock<std::mutex> lock(mtx);
-    cv.wait(lock, [&finished] { return finished; });
+    std::unique_lock<std::mutex> lock(st->m);
+    spawn_in_fiber([engine, session_id, message, on_event, st, cb,
+                    user_data]() {
+      try {
+        engine->agent->run(message, session_id, on_event);
+      } catch (const std::exception &e) {
+        if (cb) cb(user_data, "error", e.what());
+        std::lock_guard<std::mutex> lock(st->m);
+        st->finished = true;
+        st->cv.notify_all();
+      } catch (...) {
+        if (cb) cb(user_data, "error", "Unknown error in agent turn");
+        std::lock_guard<std::mutex> lock(st->m);
+        st->finished = true;
+        st->cv.notify_all();
+      }
+    });
+
+    // Wait for the turn to finish before releasing the slot.
+    st->cv.wait(lock, [&st] { return st->finished; });
   }
   engine->turn_mutex.unlock();
 }
@@ -478,6 +490,14 @@ void mc_engine_destroy(mc_engine *engine) {
   if (!e) return;
   try {
     e->running = false;
+    // Wait (bounded) for in-flight turn threads to fully leave run_turn
+    // before the pool and the engine itself go away.
+    for (int i = 0; i < 30000 && e->active_turns.load() > 0; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (e->active_turns.load() > 0)
+      spdlog::warn("[mobile] engine destroy with {} active turn thread(s)",
+                   e->active_turns.load());
     CronService::instance().stop();
     FiberPool::instance().stop();
     curl_global_cleanup();
@@ -490,7 +510,15 @@ void mc_engine_destroy(mc_engine *engine) {
 void mc_send_message(mc_engine *engine, const char *session_id,
                      const char *message, mc_event_cb cb, void *user_data) {
   auto *e = eng(engine);
-  if (!e || !e->running || !message) return;
+  if (!e || !message) return;
+
+  // Register as an active turn *before* re-checking running, so that
+  // mc_engine_destroy either sees our count or we see its running=false.
+  e->active_turns.fetch_add(1);
+  if (!e->running) {
+    e->active_turns.fetch_sub(1);
+    return;
+  }
 
   std::string sid = session_id ? session_id : "default";
   std::string msg = message;
@@ -502,6 +530,7 @@ void mc_send_message(mc_engine *engine, const char *session_id,
     // host release any per-turn state tied to `user_data` (see
     // engine_internal.h).
     if (auto cleanup = mc::g_turn_cleanup.load()) cleanup(user_data);
+    e->active_turns.fetch_sub(1);
   }).detach();
 }
 

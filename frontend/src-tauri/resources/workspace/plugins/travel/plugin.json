@@ -1,35 +1,43 @@
 {
    "name": "travel",
-   "version": "1.0.0",
-   "description": "Flight & train ticket search with price/time comparison (Amadeus live offers, Brave web fallback).",
+   "version": "2.0.0",
+   "description": "Trip planner: builds complete trip plans (round-trip tickets + dated day-by-day itinerary + budget + destination research). Also does standalone flight/train ticket search (Amadeus live offers, Brave web fallback).",
    "tools": [
       {
          "name": "travel",
-         "description": "Search flight or train tickets and compare prices and times. action=search: fetch offers for a route+date, rank them (price, duration, stops) and return a top-N table with cheapest/fastest highlights. action=rerank: re-sort the last search by price/duration/balance. Requires origin/destination/date (YYYY-MM-DD). Live offers need Amadeus keys in the travel config section; without them it falls back to indicative web results.",
+         "description": "Travel assistant with three actions. action=plan: THE trip planner — use for ANY request to plan/organize a trip or holiday (e.g. 'plan a 7-day trip to Tibet'). Provide origin, destination, date and days (or return_date); it searches round-trip tickets and returns a dated plan framework (ticket shortlist, budget worksheet, day-by-day skeleton, research checklist, next steps). You MUST then complete the plan in the same turn: research the checklist with web_search, fill every day (morning/afternoon/evening, meals, travel legs, rough costs), complete the budget, save the finished plan with write_file and present it. action=search: standalone ticket search for one route+date, ranked top-N table. action=rerank: re-sort the last search by price/duration/balance. Live prices need Amadeus keys in the travel config section; without them the tool falls back to web estimates.",
          "handler": "travel",
          "parameters": {
             "type": "object",
             "properties": {
                "action": {
                   "type": "string",
-                  "enum": ["search", "rerank"],
-                  "description": "search = fetch offers for a route+date; rerank = re-sort the last search"
+                  "enum": ["plan", "search", "rerank"],
+                  "description": "plan = full trip plan (preferred for trip requests), search = tickets only, rerank = re-sort last search"
                },
                "origin": {
                   "type": "string",
-                  "description": "Departure airport IATA code for flights (e.g. VIE) or city name for trains"
+                  "description": "Departure city / airport IATA code (ask the user if unknown)"
                },
                "destination": {
                   "type": "string",
-                  "description": "Arrival airport IATA code for flights or city name for trains"
+                  "description": "Destination city / airport IATA code"
                },
                "date": {
                   "type": "string",
-                  "description": "Departure date YYYY-MM-DD"
+                  "description": "First day (departure) YYYY-MM-DD"
+               },
+               "days": {
+                  "type": "integer",
+                  "description": "Trip length in days including both travel days (plan only, default 7)"
                },
                "return_date": {
                   "type": "string",
-                  "description": "Optional return date YYYY-MM-DD (second search is made automatically)"
+                  "description": "Optional last day YYYY-MM-DD (plan); if omitted = date + days - 1. For search: makes a second ticket lookup automatically"
+               },
+               "interests": {
+                  "type": "string",
+                  "description": "plan only: what the traveler enjoys (e.g. 'history, hiking, photography'); steers the research checklist"
                },
                "transport": {
                   "type": "string",
@@ -46,7 +54,7 @@
                },
                "max": {
                   "type": "integer",
-                  "description": "Max offers to fetch, default 20"
+                  "description": "search only: max offers to fetch, default 20"
                },
                "sort": {
                   "type": "string",
@@ -55,7 +63,7 @@
                },
                "top": {
                   "type": "integer",
-                  "description": "How many ranked results to show, default 5"
+                  "description": "search only: how many ranked results to show, default 5"
                }
             },
             "required": ["action"]

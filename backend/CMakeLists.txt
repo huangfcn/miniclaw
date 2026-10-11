@@ -173,13 +173,19 @@ if(IOS)
     target_include_directories(faiss SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third-party/omp-stub")
 endif()
 
-# Search backend: SQLite FTS5 (FetchContent amalgamation) or Lucene++.
-# Apple (macOS + iOS) is always SQLite — there is no Lucene++ build for
-# Apple, and this keeps Boost out of the Apple toolchain entirely.
+# Search backend: SQLite FTS5 (FetchContent amalgamation) or Lucene++
+# (opt-in via -DUSE_SQLITE=OFF). SQLite is the DEFAULT on every platform:
+#  - Apple: no Lucene++ build exists; keeps Boost out of the toolchain.
+#  - Windows: the vendored Lucene++ static libs have broken C++ exception
+#    unwinding under MinGW-w64 (exceptions raised inside liblucene++.a
+#    escape catch(...) and hit std::terminate via SEH 0x20474343).
+#  - Linux/others: default ON so every platform runs the same retrieval
+#    code path (FTS5 + Faiss); Lucene++ remains available for builds that
+#    want BM25 and have the Lucene++/Boost dependencies.
 if(APPLE)
     set(USE_SQLITE ON)
 else()
-    option(USE_SQLITE "Use SQLite FTS5 instead of LucenePlusPlus" OFF)
+    option(USE_SQLITE "Use SQLite FTS5 instead of LucenePlusPlus" ON)
 endif()
 if(USE_SQLITE)
     add_compile_definitions(USE_SQLITE)
@@ -369,6 +375,14 @@ if(MC_USE_MNN)
     #    unigram-Viterbi segmentation (stock MNN does greedy BPE merges →
     #    cos ≈ 0.65 vs reference) and NFKC normalization (full-width
     #    punctuation). Without these, embedding quality is unusable.
+    # 3. ExecutorScope.cpp: upstream uses `thread_local static Scope<ExecutorRef>`
+    #    on non-Apple platforms. On MSYS2/MinGW that is emulated TLS — at thread
+    #    exit libgcc's pthread-key destructor frees the emutls block BEFORE
+    #    MinGW's native TLS callback runs ~Scope(), so the destructor reads
+    #    freed (0xFEEEFEEE-filled) memory and frees a garbage pointer →
+    #    STATUS_HEAP_CORRUPTION (0xC0000374). The patch keeps one Scope per
+    #    thread but stores it in plain heap memory looked up via a pthread key
+    #    whose destructor deletes it — no emutls block, no free-before-destroy.
     set(_mnn_patches ${CMAKE_CURRENT_SOURCE_DIR}/third-party/mnn-patches)
     set(_mnn_fileloader ${mnn_SOURCE_DIR}/source/core/FileLoader.cpp)
     file(READ ${_mnn_fileloader} _mnn_fl_src)
@@ -382,6 +396,8 @@ if(MC_USE_MNN)
         file(COPY ${_mnn_patches}/${_f}
              DESTINATION ${mnn_SOURCE_DIR}/transformers/llm/engine/src/tokenizer)
     endforeach()
+    file(COPY ${_mnn_patches}/ExecutorScope.cpp
+         DESTINATION ${mnn_SOURCE_DIR}/express)
 endif()
 
 # libcurl — iOS only: the iPhoneOS SDK does not ship curl (unlike macOS), so
@@ -583,6 +599,23 @@ if(MC_USE_MNN AND NOT ANDROID AND NOT IOS)
     add_executable(mnn_local_test tests/mnn_local_test.cpp)
     target_include_directories(mnn_local_test PRIVATE src)
     target_link_libraries(mnn_local_test PRIVATE miniclaw_core)
+
+    # Repro driver for the post-chat heap corruption (openai chat + tools +
+    # MNN distillation in one process; see tests/repro_heap.cpp).
+    add_executable(repro_heap tests/repro_heap.cpp)
+    target_include_directories(repro_heap PRIVATE src)
+    target_link_libraries(repro_heap PRIVATE miniclaw_core)
+
+    # Regression test for the emutls thread-exit ordering bug in MNN's
+    # ExecutorScope (see third-party/mnn-patches/ExecutorScope.cpp):
+    # short-lived threads entering an ExecutorScope must exit cleanly.
+    add_executable(test_scope_threads tests/test_scope_threads.cpp)
+    target_include_directories(test_scope_threads PRIVATE
+        src
+        ${mnn_SOURCE_DIR}/include
+        ${mnn_SOURCE_DIR}/transformers/llm/engine/include
+    )
+    target_link_libraries(test_scope_threads PRIVATE miniclaw_core)
 endif()
 
 # ── JNI bridge (native Android app, see android/) ───────────────────────────

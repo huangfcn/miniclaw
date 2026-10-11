@@ -267,6 +267,8 @@ struct MemoryIndex::Impl {
 
             writer->addDocument(doc);
             writer->close();
+        } catch (const std::exception& e) {
+            spdlog::warn("Lucene add_doc failed: {}", e.what());
         } catch (...) {
             spdlog::warn("Lucene add_doc failed");
         }
@@ -504,6 +506,8 @@ private:
                 }
                 reader->close();
             }
+        } catch (const std::exception& e) {
+            // Silently fail if metadata can't be fetched
         } catch (...) {
             // Silently fail if metadata can't be fetched
         }

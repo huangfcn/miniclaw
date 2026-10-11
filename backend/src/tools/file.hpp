@@ -13,6 +13,17 @@ namespace fs = std::filesystem;
 // On mobile builds, all file tool paths are confined to the workspace.
 inline std::string kMobileWs() { return Config::instance().memory_workspace(); }
 
+// Anchor relative paths to the workspace on every platform: the process CWD
+// is an implementation detail (services start in arbitrary dirs), while the
+// model is told paths are workspace-relative. Absolute paths pass through
+// (still sandbox-checked on mobile).
+inline fs::path ws_resolve(const std::string &p) {
+    fs::path path(p);
+    if (path.is_relative())
+        path = fs::path(kMobileWs()) / path;
+    return path.lexically_normal();
+}
+
 class ReadFileTool : public Tool {
 public:
     std::string name() const override { return "read_file"; }
@@ -30,8 +41,9 @@ public:
 
     std::string execute(const std::string& input) override {
         MC_MOBILE_PATH_CHECK(err, input, kMobileWs());
-        if (!fs::exists(input)) return "Error: File not found: " + input;
-        std::ifstream f(input);
+        fs::path p = ws_resolve(input);
+        if (!fs::exists(p)) return "Error: File not found: " + input;
+        std::ifstream f(p);
         if (!f.is_open()) return "Error: Cannot open file: " + input;
         std::stringstream buffer;
         buffer << f.rdbuf();
@@ -55,9 +67,9 @@ public:
         if (content_it == args.end()) return "Error: missing 'content' argument";
 
         MC_MOBILE_PATH_CHECK(err, path_it->second, kMobileWs());
-        fs::path path(path_it->second);
+        fs::path path = ws_resolve(path_it->second);
         if (path.has_parent_path()) fs::create_directories(path.parent_path());
-        std::ofstream f(path_it->second);
+        std::ofstream f(path);
         if (!f.is_open()) return "Error: Cannot write to file: " + path_it->second;
         f << content_it->second;
         return "File written successfully: " + path_it->second;
@@ -94,8 +106,9 @@ public:
         if (new_it  == args.end()) return "Error: missing 'new_text'";
 
         MC_MOBILE_PATH_CHECK(err, path_it->second, kMobileWs());
-        if (!fs::exists(path_it->second)) return "Error: File not found: " + path_it->second;
-        std::ifstream fin(path_it->second);
+        fs::path p = ws_resolve(path_it->second);
+        if (!fs::exists(p)) return "Error: File not found: " + path_it->second;
+        std::ifstream fin(p);
         std::stringstream buf;
         buf << fin.rdbuf();
         std::string content = buf.str();
@@ -104,7 +117,7 @@ public:
         if (pos == std::string::npos) return "Error: old_text not found in file";
         content.replace(pos, old_it->second.length(), new_it->second);
 
-        std::ofstream fout(path_it->second);
+        std::ofstream fout(p);
         fout << content;
         return "File edited successfully: " + path_it->second;
     }
@@ -131,9 +144,10 @@ public:
 
     std::string execute(const std::string& input) override {
         MC_MOBILE_PATH_CHECK(err, input, kMobileWs());
-        if (!fs::exists(input)) return "Error: Path not found: " + input;
+        fs::path p = ws_resolve(input);
+        if (!fs::exists(p)) return "Error: Path not found: " + input;
         std::string result;
-        for (const auto& entry : fs::directory_iterator(input)) {
+        for (const auto& entry : fs::directory_iterator(p)) {
             result += entry.path().filename().string();
             if (entry.is_directory()) result += "/";
             result += "\n";

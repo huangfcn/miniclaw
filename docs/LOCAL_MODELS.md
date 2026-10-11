@@ -60,6 +60,11 @@ fibers (`FiberNode`), so MNN must never run on that thread:
 Model **load** (first use or explicit `mc_local_load`) happens on the same
 worker thread and is status-visible via `mc_local_status`.
 
+These worker threads are **short-lived**: each MNN call runs to completion on
+its own detached thread, which then exits. On MSYS2/MinGW that exit path used
+to be a latent crash — see the `ExecutorScope.cpp` patch under *Required
+patches* (thread_local Scope + emutls free-before-destroy → 0xC0000374).
+
 ### Model storage
 
 Models are **not bundled in the app** (a 1.2 GB model exceeds practical app
@@ -208,6 +213,25 @@ handles both `▁`-prefixed and space-form HF vocab keys.
    fullwidth punctuation tokenizes to UNK bytes. The patch ships a generated
    codepoint→replacement table (2 972 entries) and applies it before the `▁`
    normalization.
+
+**Runtime — `express/ExecutorScope.cpp`** (MSYS2/MinGW thread-exit crash):
+
+Upstream keeps the per-thread executor scope in a `thread_local static
+Scope<ExecutorRef>` on non-Apple platforms. On MSYS2/MinGW, function-local
+`thread_local` statics in a DLL are *emulated* TLS (libgcc
+`_emutls_get_address`): the object lives in a heap block freed by libgcc's
+pthread-key destructor at thread exit, while its C++ destructor is run later
+from MinGW's native TLS callback (`__cxa_thread_atexit` list). The free wins
+the race: `~Scope()` reads freed memory (refilled with ntdll's `0xFEEEFEEE`
+allocation-fill) and frees a garbage pointer → `STATUS_HEAP_CORRUPTION`
+(0xC0000374), fatal on any non-main thread. Every short-lived MNN worker
+thread (embedding, distillation, chat) triggered it deterministically.
+The patch keeps one scope per thread but stores it in plain heap memory,
+looked up via a `pthread_key` whose destructor deletes the scope during
+libwinpthread's own key-destructor loop — no emutls block involved. Behavior
+is unchanged (per-thread scope stack, destroyed at thread exit). Regression
+test: `tests/test_scope_threads.cpp` (200 short-lived threads entering an
+`ExecutorScope`; crashes in `~Scope()` without the patch).
 
 > **All runtime patches are applied automatically.** The MNN build is pulled
 > via CMake FetchContent (pinned to 3.6.1), and `backend/CMakeLists.txt`
